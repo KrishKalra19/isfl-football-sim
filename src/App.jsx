@@ -1,0 +1,966 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+
+// ─── DATA ───────────────────────────────────────────────────────────────────
+const FIRST_NAMES = ["Jacob","Michael","Joshua","Matthew","Daniel","Christopher","Andrew","Ethan","Joseph","William","Anthony","David","Alexander","Nicholas","Ryan","Tyler","James","John","Jonathan","Noah","Brandon","Christian","Dylan","Samuel","Benjamin","Nathan","Zachary","Logan","Justin","Gabriel","Jose","Austin","Kevin","Elijah","Caleb","Robert","Thomas","Jordan","Cameron","Jack","Hunter","Jackson","Angel","Isaiah","Evan","Isaac","Luke","Mason","Jayden","Jason","Gavin","Aaron","Connor","Aiden","Aidan","Kyle","Juan","Charles","Luis","Adam","Lucas","Brian","Eric","Adrian","Nathaniel","Sean","Alex","Carlos","Bryan","Ian","Owen","Jesus","Landon","Julian","Chase","Cole","Diego","Jeremiah","Steven","Sebastian","Xavier","Timothy","Carter","Wyatt","Brayden","Blake","Hayden","Devin","Cody","Richard","Seth","Dominic","Jaden","Antonio","Miguel","Liam","Patrick","Carson","Jesse","Tristan","Alejandro","Henry","Victor","Trevor","Bryce","Jake","Riley","Colin","Jared","Jeremy","Mark","Caden","Garrett","Parker","Marcus","Vincent","Kaleb","Kaden","Brady","Colton","Kenneth","Joel","Oscar","Josiah","Jorge","Ashton","Cooper","Tanner","Eduardo","Paul","Edward","Ivan","Preston","Maxwell","Alan","Levi","Stephen","Grant","Nicolas","Dakota","Omar","Alexis","George","Eli","Collin","Spencer","Gage","Max","Ricardo","Cristian","Derek","Micah","Brody","Francisco","Nolan","Ayden","Dalton","Shane","Peter","Damian","Jeffrey","Brendan","Travis","Fernando","Peyton","Conner","Andres","Javier","Giovanni","Shawn","Braden","Jonah","Bradley","Cesar","Emmanuel","Manuel","Edgar","Mario","Erik","Edwin","Johnathan","Devon","Erick","Wesley","Oliver","Trenton","Hector","Malachi","Jalen","Raymond","Gregory","Abraham","Elias","Leonardo","Sergio","Donovan","Colby","Marco","Bryson","Martin"];
+const LAST_NAMES = ["SMITH","JOHNSON","WILLIAMS","BROWN","JONES","GARCIA","MILLER","DAVIS","RODRIGUEZ","MARTINEZ","HERNANDEZ","LOPEZ","GONZALEZ","WILSON","ANDERSON","THOMAS","TAYLOR","MOORE","JACKSON","MARTIN","LEE","PEREZ","THOMPSON","WHITE","HARRIS","SANCHEZ","CLARK","RAMIREZ","LEWIS","ROBINSON","WALKER","YOUNG","ALLEN","KING","WRIGHT","SCOTT","TORRES","NGUYEN","HILL","FLORES","GREEN","ADAMS","NELSON","BAKER","HALL","RIVERA","CAMPBELL","MITCHELL","CARTER","ROBERTS","GOMEZ","PHILLIPS","EVANS","TURNER","DIAZ","PARKER","CRUZ","EDWARDS","COLLINS","REYES","STEWART","MORRIS","MORALES","MURPHY","COOK","ROGERS","GUTIERREZ","ORTIZ","MORGAN","COOPER","PETERSON","BAILEY","REED","KELLY","HOWARD","RAMOS","KIM","COX","WARD","RICHARDSON","WATSON","BROOKS","CHAVEZ","WOOD","JAMES","BENNETT","GRAY","MENDOZA","RUIZ","HUGHES","PRICE","ALVAREZ","CASTILLO","SANDERS","PATEL","MYERS","LONG","ROSS","FOSTER","JIMENEZ","POWELL","JENKINS","PERRY","RUSSELL","SULLIVAN","BELL","COLEMAN","BUTLER","HENDERSON","BARNES","GONZALES","FISHER","VASQUEZ","SIMMONS","ROMERO","JORDAN","PATTERSON","ALEXANDER","HAMILTON","GRAHAM","REYNOLDS","GRIFFIN","WALLACE","MORENO","WEST","COLE","HAYES","BRYANT","HERRERA","GIBSON","ELLIS","TRAN","MEDINA","AGUILAR","STEVENS","MURRAY","FORD","CASTRO","MARSHALL","OWENS","HARRISON","FERNANDEZ","MCDONALD","WOODS","WASHINGTON","KENNEDY","WELLS","VARGAS","HENRY","CHEN","FREEMAN","WEBB","TUCKER","GUZMAN","BURNS","CRAWFORD","OLSON","SIMPSON","PORTER","HUNTER","GORDON","MENDEZ","SILVA","SHAW","SNYDER","MASON","DIXON","MUNOZ","HUNT","HICKS","HOLMES","PALMER","WAGNER","BLACK","ROBERTSON","BOYD","ROSE","STONE","SALAZAR","FOX","WARREN","MILLS","MEYER","RICE","SCHMIDT","GARZA","DANIELS","FERGUSON","NICHOLS","STEPHENS","SOTO","WEAVER","RYAN","GARDNER","PAYNE","GRANT","DUNN","KELLEY","SPENCER","HAWKINS","ARNOLD","PIERCE","VAZQUEZ","HANSEN","PETERS","SANTOS","HART","BRADLEY","KNIGHT","ELLIOTT","CUNNINGHAM","DUNCAN","ARMSTRONG","HUDSON","CARROLL","LANE","RILEY","ANDREWS","ALVARADO","RAY","DELGADO","BERRY","PERKINS","HOFFMAN","JOHNSTON","MATTHEWS","PENA","RICHARDS","CONTRERAS","WILLIS","CARPENTER","LAWRENCE","SANDOVAL","GUERRERO","GEORGE","CHAPMAN","RIOS","ESTRADA","ORTEGA","WATKINS","GREENE","NUNEZ","WHEELER","VALDEZ","HARPER","BURKE","LARSON","SANTIAGO","MALDONADO","MORRISON"];
+
+const ALL_TEAM_NAMES = [
+  "Dorne Defenders", "King's Landing Knights", "Westeros White Walkers",
+  "Albuquerque Blues", "Scranton Stranglers", "Pawnee Penguins",
+  "Greendale Humans", "New York 30Rockers", "Orange County Arresters",
+  "Winterfell Wizards", "Dunder Mifflin Devils", "Springfield Isotopes",
+  "Hawkins Hawks", "Crenshaw Cavaliers", "Quahog Quagmires"
+];
+
+const POSITIONS = ["QB", "RB", "WR", "EDGE", "LB", "CB"];
+const POS_MULTIPLIERS = { QB: 1, RB: 0.262, WR: 0.554, EDGE: 0.615, LB: 0.477, CB: 0.523 };
+
+// ─── GAME LOGIC (ported from Java) ─────────────────────────────────────────
+function randInt(n) { return Math.floor(Math.random() * n); }
+function pick(arr) { return arr[randInt(arr.length)]; }
+
+function makeName() {
+  const first = pick(FIRST_NAMES);
+  const last = pick(LAST_NAMES);
+  return `${first} ${last.charAt(0)}${last.slice(1).toLowerCase()}`;
+}
+
+function checkTrait(age) {
+  if (age < 25) return 0;
+  if (age < 30) return 1;
+  if (age < 33) return 2;
+  if (age < 36) return 3;
+  return 4;
+}
+
+function createPlayer() {
+  let ovr = 59;
+  if (Math.random() < 0.5) ovr += randInt(10);
+  else ovr -= randInt(6);
+  const age = 21 + randInt(16);
+  return { name: makeName(), ovr, age, devTrait: checkTrait(age), salary: 0, ovrC: 0 };
+}
+
+function newContract(p, mult) {
+  let ovrMult = 0;
+  if (p.ovr < 65) ovrMult = 25;
+  else if (p.ovr < 70) ovrMult = 35;
+  else if (p.ovr < 76) ovrMult = 50;
+  else if (p.ovr < 83) ovrMult = 68;
+  else if (p.ovr < 91) ovrMult = 85;
+  else ovrMult = 100;
+  ovrMult /= 100;
+
+  let sal = 0;
+  if (p.devTrait === 0) sal = Math.floor(mult * 9 * ovrMult) + 1;
+  else if (p.devTrait === 1) sal = Math.floor(mult * 50 * ovrMult);
+  else if (p.devTrait === 2) sal = Math.floor(mult * 48 * ovrMult);
+  else if (p.devTrait === 3) sal = Math.floor(mult * 45 * ovrMult);
+  else sal = Math.floor(mult * 40 * ovrMult);
+  return { ...p, salary: sal };
+}
+
+function developPlayer(p) {
+  let ovr = p.ovr;
+  const ovrC = ovr;
+  p = { ...p };
+  p.age += 1;
+  p.devTrait = checkTrait(p.age);
+
+  if (p.devTrait === 0) { ovr++; if (Math.random() < 0.5) ovr++; if (Math.random() < 0.25) ovr++; }
+  else if (p.devTrait === 1) { ovr++; if (Math.random() < 0.25) ovr++; }
+  else if (p.devTrait === 2) { if (Math.random() < 0.25) ovr--; else if (Math.random() < 0.5) ovr++; }
+  else if (p.devTrait === 3) { if (Math.random() < 0.5) ovr--; ovr--; }
+  else { if (Math.random() < 0.5) ovr--; if (Math.random() < 0.5) ovr--; ovr -= 3; }
+
+  if (ovr > 99) ovr = 99;
+  p.ovr = ovr;
+  p.ovrC = ovrC;
+  return p;
+}
+
+function devStr(p) {
+  if (!p.ovrC) return "";
+  const diff = p.ovr - p.ovrC;
+  if (Math.abs(diff) > 3) return "";
+  return diff >= 0 ? `+${diff}` : `${diff}`;
+}
+
+function needsResign(age) {
+  return (age % 4 === 0 && age !== 24) || age === 25;
+}
+
+function calcOffOvr(roster) {
+  return (roster.QB.ovr * 0.525) + (roster.RB.ovr * 0.15) + (roster.WR.ovr * 0.325);
+}
+function calcDefOvr(roster) {
+  return (roster.EDGE.ovr * 0.4) + (roster.LB.ovr * 0.3) + (roster.CB.ovr * 0.3);
+}
+function calcOvr(roster) {
+  return Math.floor((calcOffOvr(roster) + calcDefOvr(roster)) / 2);
+}
+function calcSalarySpent(roster) {
+  return POSITIONS.reduce((s, pos) => s + roster[pos].salary, 0);
+}
+
+function playGame(offOvr, defOvr, opponentTeams) {
+  const teamsCopy = [...opponentTeams];
+  const idx = randInt(teamsCopy.length);
+  const oppName = teamsCopy.splice(idx, 1)[0];
+
+  let yourScore = 0, oppScore = 0;
+  const xran = offOvr / 160;
+  const yran = defOvr / 160;
+
+  let addOn = 0;
+  [3,7,3,6,3,7].forEach(v => { if (Math.random() < xran) addOn += v; });
+  [3,3,7].forEach(v => { if (Math.random() > xran) addOn -= v; });
+
+  if (offOvr < 60) yourScore = 13 + addOn;
+  else if (offOvr < 70) yourScore = 17 + addOn;
+  else if (offOvr < 80) yourScore = 20 + addOn;
+  else if (offOvr < 90) yourScore = 23 + addOn;
+  else yourScore = 24 + addOn;
+
+  let subFrom = 0;
+  [3,7,3,6,3,7].forEach(v => { if (Math.random() > yran) subFrom += v; });
+  [3,7,7].forEach(v => { if (Math.random() < yran) subFrom -= v; });
+
+  if (defOvr < 80) oppScore = 14 + subFrom;
+  else oppScore = 17 + subFrom;
+
+  let result;
+  if (yourScore > oppScore) result = "WIN";
+  else if (yourScore === oppScore) {
+    if (Math.random() < 0.5) {
+      yourScore += Math.random() < 0.35 ? 3 : 6;
+      result = "OT WIN";
+    } else {
+      oppScore += Math.random() < 0.35 ? 3 : 6;
+      result = "OT LOSS";
+    }
+  } else result = "LOSS";
+
+  return { yourScore, oppScore, oppName: oppName.trim(), result, isWin: result.includes("WIN"), remainingTeams: teamsCopy };
+}
+
+function generateDraftClass(wins, draftPO) {
+  const draftStock = 100.0 / (wins / 0.6 + 8);
+  let base;
+  if (wins < 3) base = 67;
+  else if (wins < 7) base = 64;
+  else if (wins < 10 && draftPO < 1) base = 61;
+  else if (wins < 13 && draftPO < 2) base = 59;
+  else base = 58;
+
+  const players = {};
+  POSITIONS.forEach(pos => {
+    let p = createPlayer();
+    p.age = 21 + randInt(3);
+    p.ovr = base + randInt(Math.max(1, Math.floor(draftStock)));
+    if (p.ovr > 99) p.ovr = 99;
+    p.devTrait = checkTrait(p.age);
+    p = newContract(p, POS_MULTIPLIERS[pos]);
+    players[pos] = p;
+  });
+  return players;
+}
+
+function generateFAClass() {
+  let goodLeft = 2, midLeft = 2, badLeft = 2;
+  const players = {};
+  const posArr = [...POSITIONS].sort(() => Math.random() - 0.5);
+
+  posArr.forEach(pos => {
+    let p = createPlayer();
+    let assigned = false;
+    while (!assigned) {
+      const r = Math.random();
+      if (r < 0.33 && goodLeft > 0) { p.ovr += 10 + randInt(20); goodLeft--; assigned = true; }
+      else if (r < 0.67 && midLeft > 0) { p.ovr += 5 + randInt(12); midLeft--; assigned = true; }
+      else if (badLeft > 0) { p.ovr += randInt(7); badLeft--; assigned = true; }
+    }
+    if (p.ovr > 99) p.ovr = 99;
+    if (p.age < 25) { p.age = 25; p.devTrait = checkTrait(p.age); }
+    p = newContract(p, POS_MULTIPLIERS[pos]);
+    players[pos] = p;
+  });
+  return players;
+}
+
+function initTeam() {
+  const allNames = [...ALL_TEAM_NAMES];
+  const idx = randInt(allNames.length);
+  const name = allNames.splice(idx, 1)[0];
+  const opponents = allNames;
+
+  const roster = {};
+  POSITIONS.forEach(pos => {
+    let p = createPlayer();
+    p = newContract(p, POS_MULTIPLIERS[pos]);
+    roster[pos] = p;
+  });
+
+  return { name, roster, opponents, yr: 2024, history: [], sessionWins: 0, sessionLosses: 0, POappear: 0, SBappear: 0, SBwins: 0 };
+}
+
+// ─── COMPONENTS ─────────────────────────────────────────────────────────────
+
+function PlayerCard({ pos, player, highlight, onClick, compact, actionLabel }) {
+  const traitLabel = ["Rising", "Prime", "Steady", "Declining", "Veteran"][player.devTrait];
+  const traitColor = ["#4ade80", "#60a5fa", "#a78bfa", "#fb923c", "#ef4444"][player.devTrait];
+  const dev = devStr(player);
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: hovered && onClick ? "rgba(245,158,11,0.08)" : highlight ? "rgba(74,222,128,0.06)" : "rgba(255,255,255,0.02)",
+        border: highlight ? "1px solid rgba(74,222,128,0.3)" : "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 8, padding: compact ? "8px 12px" : "12px 16px",
+        cursor: onClick ? "pointer" : "default",
+        transition: "all 0.2s ease",
+        display: "flex", alignItems: "center", gap: 12,
+      }}
+    >
+      <div style={{
+        fontFamily: "'Orbitron', monospace", fontWeight: 900, fontSize: compact ? 10 : 12,
+        color: "#f59e0b", minWidth: 40, letterSpacing: 1
+      }}>{pos}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontFamily: "'Rajdhani', sans-serif", fontWeight: 600, fontSize: compact ? 14 : 16, color: "#e2e8f0",
+          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"
+        }}>
+          {player.name}
+        </div>
+        <div style={{
+          fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#94a3b8",
+          display: "flex", gap: 10, marginTop: 2, flexWrap: "wrap"
+        }}>
+          <span>{player.age}y/o</span>
+          <span style={{ color: traitColor, fontWeight: 700 }}>{traitLabel}</span>
+          <span>${player.salary}M</span>
+        </div>
+      </div>
+      <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 10 }}>
+        <div>
+          <div style={{
+            fontFamily: "'Orbitron', monospace", fontWeight: 700, fontSize: compact ? 18 : 22,
+            color: player.ovr >= 80 ? "#4ade80" : player.ovr >= 65 ? "#fbbf24" : "#ef4444"
+          }}>{player.ovr}</div>
+          {dev && <div style={{
+            fontFamily: "'Space Mono', monospace", fontSize: 11,
+            color: dev.startsWith("+") ? "#4ade80" : "#ef4444"
+          }}>{dev}</div>}
+        </div>
+        {actionLabel && (
+          <div style={{
+            fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 11,
+            color: "#f59e0b", opacity: hovered ? 1 : 0.5, transition: "opacity 0.2s",
+            letterSpacing: 1
+          }}>{actionLabel}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RosterPanel({ roster, title }) {
+  const offOvr = Math.floor(calcOffOvr(roster));
+  const defOvr = Math.floor(calcDefOvr(roster));
+  const ovr = calcOvr(roster);
+  const spent = calcSalarySpent(roster);
+  return (
+    <div style={{ marginBottom: 16 }}>
+      {title && (
+        <div style={{
+          fontFamily: "'Orbitron', monospace", fontSize: 11, color: "#64748b",
+          marginBottom: 10, letterSpacing: 3, textTransform: "uppercase"
+        }}>{title}</div>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {POSITIONS.map(pos => <PlayerCard key={pos} pos={pos} player={roster[pos]} />)}
+      </div>
+      <div style={{
+        display: "flex", gap: 16, marginTop: 14, fontFamily: "'Space Mono', monospace",
+        fontSize: 12, color: "#64748b", flexWrap: "wrap",
+        padding: "10px 12px", background: "rgba(255,255,255,0.02)", borderRadius: 6
+      }}>
+        <span>OVR <b style={{ color: "#e2e8f0", fontSize: 14 }}>{ovr}</b></span>
+        <span>OFF <b style={{ color: "#60a5fa", fontSize: 14 }}>{offOvr}</b></span>
+        <span>DEF <b style={{ color: "#f472b6", fontSize: 14 }}>{defOvr}</b></span>
+        <span>CAP <b style={{ color: spent > 110 ? "#ef4444" : "#94a3b8", fontSize: 14 }}>${spent}M / $110M</b></span>
+      </div>
+    </div>
+  );
+}
+
+function GameResult({ week, game, record }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 6, padding: "7px 0",
+      borderBottom: "1px solid rgba(255,255,255,0.03)", fontFamily: "'Space Mono', monospace", fontSize: 12
+    }}>
+      <span style={{ color: "#475569", minWidth: 52, fontSize: 11 }}>WK {String(week).padStart(2, " ")}</span>
+      <span style={{ color: "#e2e8f0", minWidth: 50 }}>{game.yourScore} - {game.oppScore}</span>
+      <span style={{ color: "#64748b", flex: 1, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        vs {game.oppName}
+      </span>
+      <span style={{
+        fontFamily: "'Orbitron', monospace", fontWeight: 700, fontSize: 10, letterSpacing: 1,
+        color: game.isWin ? "#4ade80" : "#ef4444",
+        minWidth: 62, textAlign: "right"
+      }}>{game.result}</span>
+      <span style={{ color: "#475569", fontSize: 11, minWidth: 36, textAlign: "right" }}>{record}</span>
+    </div>
+  );
+}
+
+function Btn({ children, onClick, variant = "primary", disabled, small }) {
+  const styles = {
+    primary: { bg: "linear-gradient(135deg, #f59e0b, #d97706)", text: "#0f172a", hoverBg: "linear-gradient(135deg, #fbbf24, #f59e0b)" },
+    secondary: { bg: "rgba(255,255,255,0.06)", text: "#94a3b8", hoverBg: "rgba(255,255,255,0.12)" },
+    danger: { bg: "rgba(239,68,68,0.15)", text: "#ef4444", hoverBg: "rgba(239,68,68,0.25)" },
+    success: { bg: "rgba(74,222,128,0.15)", text: "#4ade80", hoverBg: "rgba(74,222,128,0.25)" },
+  };
+  const s = styles[variant];
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <button
+      disabled={disabled}
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: small ? 12 : 14, letterSpacing: 1,
+        padding: small ? "6px 14px" : "10px 22px", borderRadius: 6,
+        border: variant === "primary" ? "none" : "1px solid rgba(255,255,255,0.08)",
+        background: disabled ? "#1e293b" : hovered ? s.hoverBg : s.bg,
+        color: disabled ? "#475569" : s.text,
+        cursor: disabled ? "not-allowed" : "pointer", transition: "all 0.15s", textTransform: "uppercase",
+        whiteSpace: "nowrap"
+      }}
+    >{children}</button>
+  );
+}
+
+function LogPanel({ messages, logRef }) {
+  return (
+    <div ref={logRef} style={{
+      background: "rgba(0,0,0,0.3)", borderRadius: 8, padding: 14,
+      maxHeight: 180, overflowY: "auto", fontFamily: "'Space Mono', monospace", fontSize: 12,
+      color: "#94a3b8", lineHeight: 1.8, border: "1px solid rgba(255,255,255,0.04)"
+    }}>
+      {messages.map((m, i) => (
+        <div key={i} style={{
+          color: m.type === "success" ? "#4ade80" : m.type === "error" ? "#ef4444" : m.type === "highlight" ? "#fbbf24" : "#94a3b8"
+        }}>{m.text}</div>
+      ))}
+    </div>
+  );
+}
+
+// ─── MAIN APP ───────────────────────────────────────────────────────────────
+const PHASES = {
+  WELCOME: "WELCOME", ROSTER_VIEW: "ROSTER_VIEW", REGULAR_SEASON: "REGULAR_SEASON",
+  POSTSEASON_CHECK: "POSTSEASON_CHECK", POSTSEASON_ROUND: "POSTSEASON_ROUND",
+  SEASON_END: "SEASON_END", RESIGN: "RESIGN", DRAFT: "DRAFT",
+  FREE_AGENCY: "FREE_AGENCY", SESSION_END: "SESSION_END",
+};
+
+const PO_ROUNDS = ["Wildcard", "Divisional", "Conference Championship", "Super Bowl"];
+const PO_PENALTIES = [2, 4, 6, 8];
+
+export default function App() {
+  const [phase, setPhase] = useState(PHASES.WELCOME);
+  const [team, setTeam] = useState(null);
+  const [games, setGames] = useState([]);
+  const [wins, setWins] = useState(0);
+  const [weekNum, setWeekNum] = useState(1);
+  const [opponentPool, setOpponentPool] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [poRound, setPoRound] = useState(0);
+  const [draftPO, setDraftPO] = useState(0);
+  const [draftClass, setDraftClass] = useState(null);
+  const [faClass, setFaClass] = useState(null);
+  const [resignList, setResignList] = useState([]);
+  const [showHelp, setShowHelp] = useState(false);
+  const logRef = useRef(null);
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [logs]);
+
+  const addLog = useCallback((text, type = "normal") => {
+    setLogs(prev => [...prev, { text, type }]);
+  }, []);
+
+  const startGame = () => {
+    const t = initTeam();
+    setTeam(t);
+    setPhase(PHASES.ROSTER_VIEW);
+    setOpponentPool([...t.opponents]);
+  };
+
+  const simWeeks = (count) => {
+    if (!team) return;
+    const target = Math.min(weekNum + count - 1, 17);
+    let w = wins;
+    const newGames = [...games];
+    let pool = [...opponentPool];
+
+    for (let wk = weekNum; wk <= target; wk++) {
+      const offOvr = calcOffOvr(team.roster);
+      const defOvr = calcDefOvr(team.roster);
+      if (pool.length === 0) pool = [...team.opponents];
+      const g = playGame(offOvr, defOvr, pool);
+      pool = g.remainingTeams;
+      if (g.isWin) w++;
+      newGames.push({ week: wk, game: g, record: `${w}-${wk - w}` });
+    }
+
+    setGames(newGames);
+    setWins(w);
+    setWeekNum(target + 1);
+    setOpponentPool(pool);
+
+    if (target >= 17) {
+      setTeam(prev => ({
+        ...prev,
+        sessionWins: prev.sessionWins + w,
+        sessionLosses: prev.sessionLosses + (17 - w),
+      }));
+      setTimeout(() => setPhase(PHASES.POSTSEASON_CHECK), 300);
+    }
+  };
+
+  const startPostseason = () => {
+    const e = wins;
+    let made = false, bye = false;
+    const newLogs = [];
+
+    if (e < 9) { newLogs.push({ text: "You didn't make the playoffs this year.", type: "error" }); }
+    else if (e === 9) {
+      if (Math.random() < 0.666) { made = true; newLogs.push({ text: "You made the playoffs!", type: "success" }); }
+      else newLogs.push({ text: "You didn't make the playoffs.", type: "error" });
+    }
+    else if (e < 13) { made = true; newLogs.push({ text: "You made the playoffs!", type: "success" }); }
+    else if (e === 13) {
+      made = true;
+      if (Math.random() < 0.6) { bye = true; newLogs.push({ text: "You made the playoffs with a first-round bye!", type: "success" }); }
+      else newLogs.push({ text: "You made the playoffs!", type: "success" });
+    }
+    else { made = true; bye = true; newLogs.push({ text: "You made the playoffs with a first-round bye!", type: "success" }); }
+
+    setLogs(newLogs);
+
+    if (!made) {
+      setTeam(prev => ({
+        ...prev,
+        history: [...prev.history, { yr: prev.yr, record: `${e}-${17 - e}`, result: "Missed Playoffs" }]
+      }));
+      setPhase(PHASES.SEASON_END);
+      return;
+    }
+
+    setTeam(prev => ({ ...prev, POappear: prev.POappear + 1 }));
+    setDraftPO(0);
+    setPoRound(bye ? 1 : 0);
+    setPhase(PHASES.POSTSEASON_ROUND);
+  };
+
+  const simPlayoffRound = () => {
+    const offOvr = calcOffOvr(team.roster) - PO_PENALTIES[poRound];
+    const defOvr = calcDefOvr(team.roster) - PO_PENALTIES[poRound];
+    let pool = [...opponentPool];
+    if (pool.length === 0) pool = [...team.opponents];
+    const g = playGame(offOvr, defOvr, pool);
+    setOpponentPool(g.remainingTeams);
+
+    const roundName = PO_ROUNDS[poRound];
+    setLogs(prev => [...prev, {
+      text: `${roundName}: ${g.yourScore} - ${g.oppScore} vs ${g.oppName}  →  ${g.result}`,
+      type: g.isWin ? "success" : "error"
+    }]);
+
+    if (g.isWin) {
+      if (poRound < 3) {
+        const newDraftPO = poRound >= 1 ? 2 : 1;
+        setDraftPO(newDraftPO);
+        if (poRound === 2) {
+          setTeam(prev => ({ ...prev, SBappear: prev.SBappear + 1 }));
+        }
+        setPoRound(poRound + 1);
+      } else {
+        setLogs(prev => [...prev, { text: "YOU WON THE SUPER BOWL!", type: "success" }]);
+        setTeam(prev => ({
+          ...prev,
+          SBappear: prev.SBappear + 1,
+          SBwins: prev.SBwins + 1,
+          history: [...prev.history, { yr: prev.yr, record: `${wins}-${17 - wins}`, result: "Won the Super Bowl!" }]
+        }));
+        setPhase(PHASES.SEASON_END);
+      }
+    } else {
+      const lostIn = `Lost in ${roundName}`;
+      setTeam(prev => ({
+        ...prev,
+        history: [...prev.history, { yr: prev.yr, record: `${wins}-${17 - wins}`, result: lostIn }]
+      }));
+      setPhase(PHASES.SEASON_END);
+    }
+  };
+
+  const startNewSeason = () => {
+    const newRoster = {};
+    POSITIONS.forEach(pos => { newRoster[pos] = developPlayer(team.roster[pos]); });
+
+    const needsResignArr = POSITIONS.filter(pos => needsResign(newRoster[pos].age));
+    needsResignArr.forEach(pos => {
+      newRoster[pos] = newContract(newRoster[pos], POS_MULTIPLIERS[pos]);
+    });
+
+    setTeam(prev => ({ ...prev, roster: { ...newRoster }, yr: prev.yr + 1 }));
+    setResignList(needsResignArr);
+    setLogs([]);
+    setPhase(PHASES.RESIGN);
+  };
+
+  const handleResign = (pos) => {
+    addLog(`Re-signed ${pos}: ${team.roster[pos].name} for $${team.roster[pos].salary}M`, "success");
+    setResignList(prev => prev.filter(p => p !== pos));
+  };
+
+  const skipResign = (pos) => {
+    const oldName = team.roster[pos].name;
+    let backup = createPlayer();
+    backup = newContract(backup, POS_MULTIPLIERS[pos]);
+    setTeam(prev => ({ ...prev, roster: { ...prev.roster, [pos]: backup } }));
+    addLog(`Let ${oldName} walk. Replacement: ${backup.name} (${backup.ovr} ovr)`, "highlight");
+    setResignList(prev => prev.filter(p => p !== pos));
+  };
+
+  const finishResign = () => {
+    const updates = {};
+    resignList.forEach(pos => {
+      let backup = createPlayer();
+      backup = newContract(backup, POS_MULTIPLIERS[pos]);
+      updates[pos] = backup;
+    });
+    if (Object.keys(updates).length > 0) {
+      setTeam(prev => ({ ...prev, roster: { ...prev.roster, ...updates } }));
+    }
+    setResignList([]);
+    setDraftClass(generateDraftClass(wins, draftPO));
+    setLogs([]);
+    setPhase(PHASES.DRAFT);
+  };
+
+  const draftPlayer = (pos) => {
+    const player = draftClass[pos];
+    addLog(`Drafted ${pos}: ${player.name} (${player.ovr} ovr, $${player.salary}M)`, "success");
+    setTeam(prev => ({ ...prev, roster: { ...prev.roster, [pos]: player } }));
+    setFaClass(generateFAClass());
+    setTimeout(() => { setLogs([]); setPhase(PHASES.FREE_AGENCY); }, 600);
+  };
+
+  const skipDraft = () => {
+    setFaClass(generateFAClass());
+    setLogs([]);
+    setPhase(PHASES.FREE_AGENCY);
+  };
+
+  const signFA = (pos) => {
+    const fa = faClass[pos];
+    const current = team.roster[pos];
+    const newSpent = calcSalarySpent(team.roster) - current.salary + fa.salary;
+    if (newSpent > 110) {
+      addLog(`Can't afford ${fa.name} — would put you at $${newSpent}M/$110M`, "error");
+      return;
+    }
+    addLog(`Signed ${pos}: ${fa.name} (${fa.ovr} ovr, $${fa.salary}M)`, "success");
+    setTeam(prev => ({ ...prev, roster: { ...prev.roster, [pos]: fa } }));
+  };
+
+  const finishFA = () => {
+    setGames([]);
+    setWins(0);
+    setWeekNum(1);
+    setOpponentPool([...team.opponents]);
+    setLogs([]);
+    setPhase(PHASES.REGULAR_SEASON);
+  };
+
+  const endSession = () => { setPhase(PHASES.SESSION_END); };
+
+  const resetAll = () => {
+    setPhase(PHASES.WELCOME); setTeam(null); setGames([]); setWins(0);
+    setWeekNum(1); setLogs([]); setDraftClass(null); setFaClass(null);
+    setResignList([]); setShowHelp(false);
+  };
+
+  // ─── RENDER ───────────────────────────────────────────────────────────────
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "#06090f",
+      backgroundImage: "radial-gradient(ellipse at 15% 80%, rgba(245,158,11,0.05) 0%, transparent 50%), radial-gradient(ellipse at 85% 15%, rgba(59,130,246,0.04) 0%, transparent 50%)",
+      color: "#e2e8f0", padding: "24px 16px", boxSizing: "border-box",
+      fontFamily: "'Rajdhani', sans-serif"
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+        body { background: #06090f; }
+      `}</style>
+
+      <div style={{ maxWidth: 680, margin: "0 auto" }}>
+        {/* ── HEADER ── */}
+        <div style={{ textAlign: "center", marginBottom: 28, position: "relative" }}>
+          <div style={{
+            position: "absolute", top: -30, left: "50%", transform: "translateX(-50%)",
+            width: 200, height: 200, background: "radial-gradient(circle, rgba(245,158,11,0.08) 0%, transparent 70%)",
+            pointerEvents: "none"
+          }} />
+          <h1 style={{
+            fontFamily: "'Orbitron', monospace", fontWeight: 900, fontSize: 32, margin: 0,
+            background: "linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)",
+            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+            letterSpacing: 6, position: "relative"
+          }}>ISFL</h1>
+          <div style={{
+            fontFamily: "'Space Mono', monospace", fontSize: 10, color: "#475569",
+            letterSpacing: 5, marginTop: 6
+          }}>ICONIC SHOWS FOOTBALL LEAGUE</div>
+          {team && phase !== PHASES.WELCOME && phase !== PHASES.SESSION_END && (
+            <div style={{
+              fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 17,
+              color: "#f59e0b", marginTop: 10, letterSpacing: 1
+            }}>{team.yr} {team.name}</div>
+          )}
+        </div>
+
+        {/* ── WELCOME ── */}
+        {phase === PHASES.WELCOME && (
+          <div style={{ textAlign: "center", paddingTop: 20 }}>
+            <div style={{
+              fontSize: 18, color: "#94a3b8", lineHeight: 1.9,
+              maxWidth: 480, margin: "0 auto 36px"
+            }}>
+              Become the General Manager of a television-themed football team.
+              Manage your roster, simulate seasons, and chase Super Bowl glory.
+            </div>
+            {showHelp && (
+              <div style={{
+                background: "rgba(255,255,255,0.02)", borderRadius: 12, padding: 24, marginBottom: 28,
+                fontSize: 15, color: "#94a3b8", lineHeight: 2, textAlign: "left",
+                border: "1px solid rgba(255,255,255,0.05)"
+              }}>
+                <p style={{ marginBottom: 12 }}>Your roster has 3 offensive positions (QB, RB, WR) and 3 defensive (EDGE, LB, CB). Each player has an OVR rating.</p>
+                <p style={{ marginBottom: 12 }}>Position importance: QB &gt; EDGE &gt; CB &gt; WR/LB &gt; RB. Younger players improve, older ones decline.</p>
+                <p style={{ marginBottom: 12 }}>After each 17-game season, there's a re-signing period, draft, and free agency. The goal: win as many Super Bowls as you can.</p>
+                <p>Salary cap is $110M. Manage your money wisely.</p>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+              <Btn onClick={startGame}>Play Ball</Btn>
+              <Btn variant="secondary" onClick={() => setShowHelp(!showHelp)}>
+                {showHelp ? "Got it" : "How to Play"}
+              </Btn>
+            </div>
+          </div>
+        )}
+
+        {/* ── ROSTER VIEW ── */}
+        {phase === PHASES.ROSTER_VIEW && team && (
+          <div>
+            <div style={{ fontSize: 16, color: "#94a3b8", marginBottom: 20, textAlign: "center", lineHeight: 1.8 }}>
+              You are the new GM of the <b style={{ color: "#f59e0b" }}>{team.name}</b>.
+            </div>
+            <RosterPanel roster={team.roster} title="Your Roster" />
+            <div style={{ textAlign: "center", marginTop: 24 }}>
+              <Btn onClick={() => { setOpponentPool([...team.opponents]); setPhase(PHASES.REGULAR_SEASON); }}>
+                Start Season
+              </Btn>
+            </div>
+          </div>
+        )}
+
+        {/* ── REGULAR SEASON ── */}
+        {phase === PHASES.REGULAR_SEASON && team && (
+          <div>
+            <RosterPanel roster={team.roster} title="Roster" />
+
+            {weekNum <= 17 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{
+                  fontFamily: "'Space Mono', monospace", fontSize: 13, color: "#94a3b8", marginBottom: 12
+                }}>
+                  Week {weekNum} of 17 &nbsp;|&nbsp; Record: {wins}-{games.length - wins}
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <Btn onClick={() => simWeeks(1)} variant="secondary">1 Week</Btn>
+                  <Btn onClick={() => simWeeks(4)} variant="secondary">4 Weeks</Btn>
+                  {weekNum <= 8 && (
+                    <Btn onClick={() => simWeeks(8 - weekNum + 1)} variant="secondary">To Week 8</Btn>
+                  )}
+                  <Btn onClick={() => simWeeks(17 - weekNum + 1)}>Sim All</Btn>
+                </div>
+              </div>
+            )}
+
+            {games.length > 0 && (
+              <div style={{
+                background: "rgba(0,0,0,0.25)", borderRadius: 8, padding: 14, marginTop: 12,
+                maxHeight: 360, overflowY: "auto", border: "1px solid rgba(255,255,255,0.04)"
+              }}>
+                {games.map((g, i) => <GameResult key={i} week={g.week} game={g.game} record={g.record} />)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── POSTSEASON CHECK ── */}
+        {phase === PHASES.POSTSEASON_CHECK && (
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontFamily: "'Orbitron', monospace", fontSize: 16, color: "#94a3b8", marginBottom: 6, letterSpacing: 3 }}>
+              SEASON COMPLETE
+            </div>
+            <div style={{
+              fontFamily: "'Orbitron', monospace", fontSize: 28, fontWeight: 900,
+              color: "#f59e0b", marginBottom: 24
+            }}>{wins}-{17 - wins}</div>
+            {games.length > 0 && (
+              <div style={{
+                background: "rgba(0,0,0,0.25)", borderRadius: 8, padding: 14, marginBottom: 24,
+                maxHeight: 240, overflowY: "auto", border: "1px solid rgba(255,255,255,0.04)",
+                textAlign: "left"
+              }}>
+                {games.map((g, i) => <GameResult key={i} week={g.week} game={g.game} record={g.record} />)}
+              </div>
+            )}
+            <Btn onClick={startPostseason}>Check Playoffs</Btn>
+          </div>
+        )}
+
+        {/* ── POSTSEASON ROUNDS ── */}
+        {phase === PHASES.POSTSEASON_ROUND && (
+          <div style={{ textAlign: "center" }}>
+            <div style={{
+              fontFamily: "'Orbitron', monospace", fontSize: 18, fontWeight: 700, marginBottom: 24,
+              color: poRound === 3 ? "#f59e0b" : "#e2e8f0", letterSpacing: 2
+            }}>{PO_ROUNDS[poRound].toUpperCase()}</div>
+            {logs.length > 0 && <LogPanel messages={logs} logRef={logRef} />}
+            <div style={{ marginTop: 20 }}>
+              <Btn onClick={simPlayoffRound} variant={poRound === 3 ? "primary" : "secondary"}>
+                Sim {PO_ROUNDS[poRound]}
+              </Btn>
+            </div>
+          </div>
+        )}
+
+        {/* ── SEASON END ── */}
+        {phase === PHASES.SEASON_END && team && (
+          <div style={{ textAlign: "center" }}>
+            <div style={{
+              fontFamily: "'Orbitron', monospace", fontSize: 14, color: "#64748b",
+              marginBottom: 8, letterSpacing: 3
+            }}>{team.yr} SEASON OVER</div>
+
+            {logs.length > 0 && <div style={{ marginBottom: 16 }}><LogPanel messages={logs} logRef={logRef} /></div>}
+
+            <div style={{
+              fontFamily: "'Rajdhani', sans-serif", fontSize: 18, fontWeight: 700, marginBottom: 24,
+              color: team.history[team.history.length - 1]?.result.includes("Super Bowl!") ? "#4ade80" : "#94a3b8"
+            }}>{team.history[team.history.length - 1]?.result}</div>
+
+            <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+              <Btn onClick={startNewSeason}>Next Season</Btn>
+              <Btn variant="danger" onClick={endSession}>End Session</Btn>
+            </div>
+          </div>
+        )}
+
+        {/* ── RE-SIGNING ── */}
+        {phase === PHASES.RESIGN && team && (
+          <div>
+            <div style={{
+              fontFamily: "'Orbitron', monospace", fontSize: 14, letterSpacing: 3,
+              color: "#e2e8f0", marginBottom: 4
+            }}>RE-SIGNING</div>
+            <div style={{
+              fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#475569", marginBottom: 20
+            }}>{team.yr} Offseason &nbsp;|&nbsp; Cap: ${calcSalarySpent(team.roster)}M / $110M</div>
+
+            <RosterPanel roster={team.roster} title="Current Roster" />
+
+            {resignList.length > 0 ? (
+              <div style={{ marginTop: 20 }}>
+                <div style={{
+                  fontFamily: "'Rajdhani', sans-serif", fontSize: 14, color: "#fb923c",
+                  marginBottom: 12, fontWeight: 600
+                }}>Expired contracts:</div>
+                {resignList.map(pos => (
+                  <div key={pos} style={{
+                    display: "flex", alignItems: "center", gap: 8, marginBottom: 6,
+                    background: "rgba(251,146,60,0.04)", borderRadius: 8, padding: 8,
+                    border: "1px solid rgba(251,146,60,0.12)"
+                  }}>
+                    <div style={{ flex: 1 }}>
+                      <PlayerCard pos={pos} player={team.roster[pos]} compact />
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <Btn onClick={() => handleResign(pos)} variant="success" small>Keep</Btn>
+                      <Btn onClick={() => skipResign(pos)} variant="danger" small>Cut</Btn>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: 15, color: "#4ade80", marginTop: 16 }}>All contracts handled.</div>
+            )}
+
+            {logs.length > 0 && <div style={{ marginTop: 12 }}><LogPanel messages={logs} logRef={logRef} /></div>}
+
+            <div style={{ textAlign: "center", marginTop: 24 }}>
+              <Btn onClick={finishResign}>
+                {resignList.length > 0 ? "Skip Rest → Draft" : "Go to Draft"}
+              </Btn>
+            </div>
+          </div>
+        )}
+
+        {/* ── DRAFT ── */}
+        {phase === PHASES.DRAFT && team && draftClass && (
+          <div>
+            <div style={{
+              fontFamily: "'Orbitron', monospace", fontSize: 14, letterSpacing: 3,
+              color: "#e2e8f0", marginBottom: 4
+            }}>{team.yr} DRAFT</div>
+            <div style={{
+              fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#475569", marginBottom: 20
+            }}>Pick one player. Draft picks can exceed the salary cap.</div>
+
+            <RosterPanel roster={team.roster} title="Your Team" />
+
+            <div style={{
+              fontFamily: "'Orbitron', monospace", fontSize: 11, color: "#64748b",
+              marginBottom: 10, marginTop: 20, letterSpacing: 3
+            }}>DRAFT CLASS</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {POSITIONS.map(pos => (
+                <PlayerCard key={pos} pos={pos} player={draftClass[pos]}
+                  onClick={() => draftPlayer(pos)} actionLabel="DRAFT" />
+              ))}
+            </div>
+
+            {logs.length > 0 && <div style={{ marginTop: 12 }}><LogPanel messages={logs} logRef={logRef} /></div>}
+
+            <div style={{ textAlign: "center", marginTop: 20 }}>
+              <Btn variant="secondary" onClick={skipDraft}>Skip Draft</Btn>
+            </div>
+          </div>
+        )}
+
+        {/* ── FREE AGENCY ── */}
+        {phase === PHASES.FREE_AGENCY && team && faClass && (
+          <div>
+            <div style={{
+              fontFamily: "'Orbitron', monospace", fontSize: 14, letterSpacing: 3,
+              color: "#e2e8f0", marginBottom: 4
+            }}>FREE AGENCY</div>
+            <div style={{
+              fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#475569", marginBottom: 20
+            }}>Sign as many as you can afford &nbsp;|&nbsp; Cap: ${calcSalarySpent(team.roster)}M / $110M</div>
+
+            <RosterPanel roster={team.roster} title="Your Team" />
+
+            <div style={{
+              fontFamily: "'Orbitron', monospace", fontSize: 11, color: "#64748b",
+              marginBottom: 10, marginTop: 20, letterSpacing: 3
+            }}>FREE AGENTS</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {POSITIONS.map(pos => (
+                <PlayerCard key={pos} pos={pos} player={faClass[pos]}
+                  onClick={() => signFA(pos)} actionLabel="SIGN" />
+              ))}
+            </div>
+
+            {logs.length > 0 && <div style={{ marginTop: 12 }}><LogPanel messages={logs} logRef={logRef} /></div>}
+
+            <div style={{ textAlign: "center", marginTop: 24 }}>
+              <Btn onClick={finishFA}>Start {team.yr} Season</Btn>
+            </div>
+          </div>
+        )}
+
+        {/* ── SESSION END ── */}
+        {phase === PHASES.SESSION_END && team && (
+          <div style={{ textAlign: "center" }}>
+            <div style={{
+              fontFamily: "'Orbitron', monospace", fontWeight: 900, fontSize: 20, marginBottom: 28,
+              background: "linear-gradient(135deg, #f59e0b, #ef4444)",
+              WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+              letterSpacing: 4
+            }}>SESSION SUMMARY</div>
+
+            <div style={{
+              background: "rgba(255,255,255,0.02)", borderRadius: 10, padding: 20, marginBottom: 24,
+              border: "1px solid rgba(255,255,255,0.05)", textAlign: "left"
+            }}>
+              {team.history.map((h, i) => (
+                <div key={i} style={{
+                  fontFamily: "'Space Mono', monospace", fontSize: 12, color: "#94a3b8",
+                  padding: "10px 0",
+                  borderBottom: i < team.history.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none"
+                }}>
+                  <span style={{ color: "#f59e0b", fontWeight: 700 }}>{h.yr}</span>
+                  <span style={{ color: "#64748b" }}> &mdash; </span>
+                  {h.record}
+                  <span style={{ color: "#64748b" }}> &mdash; </span>
+                  <span style={{
+                    color: h.result.includes("Super Bowl!") ? "#4ade80" :
+                           h.result.includes("Lost in") ? "#fb923c" : "#64748b"
+                  }}>{h.result}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{
+              display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10,
+              maxWidth: 380, margin: "0 auto 28px"
+            }}>
+              {[
+                ["Record", `${team.sessionWins}-${team.sessionLosses}`],
+                ["Playoffs", team.POappear],
+                ["SB Apps", team.SBappear],
+                ["Rings", team.SBwins],
+              ].map(([label, val]) => (
+                <div key={label} style={{
+                  background: "rgba(255,255,255,0.02)", borderRadius: 8, padding: "14px 12px",
+                  border: "1px solid rgba(255,255,255,0.05)"
+                }}>
+                  <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 10, color: "#475569", letterSpacing: 1 }}>{label}</div>
+                  <div style={{ fontFamily: "'Orbitron', monospace", fontWeight: 700, fontSize: 22, color: "#e2e8f0", marginTop: 6 }}>{val}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{
+              fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#334155", marginBottom: 20
+            }}>Thanks for playing! — Dev: Krish</div>
+            <Btn onClick={resetAll}>Play Again</Btn>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
