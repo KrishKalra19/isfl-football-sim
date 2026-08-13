@@ -332,6 +332,72 @@ function initTeam(chosenName) {
   return { name, roster, opponents, yr: 2024, history: [], sessionWins: 0, sessionLosses: 0, POappear: 0, SBappear: 0, SBwins: 0, badSeasonStreak: 0, fired: false, tradesUsedThisSeason: 0, awardsWon: [], injuries: {} };
 }
 
+// ─── PLAYER AVATARS ─────────────────────────────────────────────────────────
+// Deterministic pixel-art avatars: same name+position always renders the same
+// blocky sprite, generated purely from a hash — no image assets needed.
+
+function hashSeed(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(seed) {
+  let a = seed;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const AVATAR_PALETTE = {
+  QB: { bg: "rgba(245,158,11,0.12)", fg: "#f59e0b" },
+  RB: { bg: "rgba(96,165,250,0.12)", fg: "#60a5fa" },
+  WR: { bg: "rgba(167,139,250,0.12)", fg: "#a78bfa" },
+  EDGE: { bg: "rgba(239,68,68,0.12)", fg: "#ef4444" },
+  LB: { bg: "rgba(74,222,128,0.12)", fg: "#4ade80" },
+  CB: { bg: "rgba(34,211,238,0.12)", fg: "#22d3ee" },
+};
+
+const AVATAR_COLS = 8;
+const AVATAR_ROWS = 8;
+
+function PlayerAvatar({ name, pos, size = 36 }) {
+  const seed = useMemo(() => hashSeed(`${name}::${pos}`), [name, pos]);
+  const { rects, palette, delay } = useMemo(() => {
+    const rng = mulberry32(seed);
+    const half = AVATAR_COLS / 2;
+    const out = [];
+    for (let r = 0; r < AVATAR_ROWS; r++) {
+      for (let c = 0; c < half; c++) {
+        if (rng() > 0.55) {
+          out.push({ x: c, y: r });
+          out.push({ x: AVATAR_COLS - 1 - c, y: r });
+        }
+      }
+    }
+    return { rects: out, palette: AVATAR_PALETTE[pos] || AVATAR_PALETTE.QB, delay: rng() * 1.5 };
+  }, [seed, pos]);
+
+  return (
+    <div style={{
+      width: size, height: size, flexShrink: 0, borderRadius: 6,
+      background: palette.bg, animation: `isfl-avatar-bob 2.4s ease-in-out ${delay}s infinite`
+    }}>
+      <svg width={size} height={size} viewBox={`0 0 ${AVATAR_COLS} ${AVATAR_ROWS}`} shapeRendering="crispEdges">
+        {rects.map((p, i) => (
+          <rect key={i} x={p.x} y={p.y} width={1} height={1} fill={palette.fg} />
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 // ─── COMPONENTS ─────────────────────────────────────────────────────────────
 
 function PlayerCard({ pos, player, highlight, onClick, compact, actionLabel, scouting, injury }) {
@@ -354,6 +420,7 @@ function PlayerCard({ pos, player, highlight, onClick, compact, actionLabel, sco
         display: "flex", alignItems: "center", gap: 12,
       }}
     >
+      <PlayerAvatar name={player.name} pos={pos} size={compact ? 28 : 36} />
       <div style={{
         fontFamily: "'Orbitron', monospace", fontWeight: 900, fontSize: compact ? 10 : 12,
         color: "#f59e0b", minWidth: 40, letterSpacing: 1
@@ -1062,6 +1129,10 @@ export default function App() {
         @keyframes isfl-confetti-fall {
           0% { transform: translateY(0) rotate(0deg); opacity: 1; }
           100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        }
+        @keyframes isfl-avatar-bob {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-2px); }
         }
         .isfl-team-pick:hover { background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.3); }
       `}</style>
