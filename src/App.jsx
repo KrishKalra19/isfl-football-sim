@@ -12,6 +12,24 @@ const ALL_TEAM_NAMES = [
   "Hawkins Hawks", "Crenshaw Cavaliers", "Quahog Quagmires"
 ];
 
+const DIVISIONS = [
+  { name: "Prestige Division", teams: ["Dorne Defenders", "King's Landing Knights", "Westeros White Walkers", "Winterfell Wizards", "Hawkins Hawks"] },
+  { name: "Workplace Division", teams: ["Scranton Stranglers", "Pawnee Penguins", "Greendale Humans", "New York 30Rockers", "Dunder Mifflin Devils"] },
+  { name: "Animated Division", teams: ["Albuquerque Blues", "Orange County Arresters", "Springfield Isotopes", "Crenshaw Cavaliers", "Quahog Quagmires"] },
+];
+
+function teamDivision(name) {
+  const d = DIVISIONS.find(d => d.teams.includes(name));
+  return d ? d.name : "";
+}
+
+function generateLeagueStandings(yourName, yourWins) {
+  return ALL_TEAM_NAMES.map(name => {
+    const wins = name === yourName ? yourWins : Math.max(2, Math.min(15, 4 + randInt(10)));
+    return { name, wins, losses: 17 - wins, division: teamDivision(name) };
+  });
+}
+
 const POSITIONS = ["QB", "RB", "WR", "EDGE", "LB", "CB"];
 const POS_MULTIPLIERS = { QB: 1, RB: 0.262, WR: 0.554, EDGE: 0.615, LB: 0.477, CB: 0.523 };
 
@@ -84,6 +102,53 @@ function devStr(p) {
   const diff = p.ovr - p.ovrC;
   if (Math.abs(diff) > 3) return "";
   return diff >= 0 ? `+${diff}` : `${diff}`;
+}
+
+function bestOf(roster, positions) {
+  let best = null, bestPos = null;
+  positions.forEach(pos => {
+    const p = roster[pos];
+    if (!best || p.ovr > best.ovr) { best = p; bestPos = pos; }
+  });
+  return best ? { player: best, pos: bestPos } : null;
+}
+
+function bestRookie(roster) {
+  let best = null, bestPos = null;
+  POSITIONS.forEach(pos => {
+    const p = roster[pos];
+    if (p.age <= 22 && (!best || p.ovr > best.ovr)) { best = p; bestPos = pos; }
+  });
+  return best ? { player: best, pos: bestPos } : null;
+}
+
+function bestComeback(roster) {
+  let best = null, bestPos = null;
+  POSITIONS.forEach(pos => {
+    const p = roster[pos];
+    const d = devStr(p);
+    if (d && d.startsWith("+") && (!best || p.ovr > best.ovr)) { best = p; bestPos = pos; }
+  });
+  return best ? { player: best, pos: bestPos } : null;
+}
+
+function rollAwards(roster) {
+  const categories = [
+    { label: "MVP", cand: bestOf(roster, POSITIONS) },
+    { label: "Offensive Player of the Year", cand: bestOf(roster, ["QB", "RB", "WR"]) },
+    { label: "Defensive Player of the Year", cand: bestOf(roster, ["EDGE", "LB", "CB"]) },
+    { label: "Rookie of the Year", cand: bestRookie(roster) },
+    { label: "Comeback Player of the Year", cand: bestComeback(roster) },
+  ];
+  const results = [];
+  categories.forEach(cat => {
+    if (!cat.cand) return;
+    const chance = Math.max(0.03, Math.min(0.85, (cat.cand.player.ovr - 65) / 35));
+    if (Math.random() < chance) {
+      results.push({ award: cat.label, playerName: cat.cand.player.name, pos: cat.cand.pos, ovr: cat.cand.player.ovr });
+    }
+  });
+  return results;
 }
 
 function needsResign(age) {
@@ -166,7 +231,11 @@ function scoutReport(ovr) {
   return { ...SCOUT_TAGS[archetype], low, high };
 }
 
-function generateDraftClass(wins, draftPO) {
+function draftPickCount(draftPO) {
+  return draftPO >= 2 ? 1 : draftPO === 1 ? 2 : 3;
+}
+
+function generateDraftClass(wins, draftPO, excludePositions = []) {
   const draftStock = 100.0 / (wins / 0.6 + 8);
   let base;
   if (wins < 3) base = 67;
@@ -176,7 +245,7 @@ function generateDraftClass(wins, draftPO) {
   else base = 58;
 
   const players = {};
-  POSITIONS.forEach(pos => {
+  POSITIONS.filter(pos => !excludePositions.includes(pos)).forEach(pos => {
     let p = createPlayer();
     p.age = 21 + randInt(3);
     p.ovr = base + randInt(Math.max(1, Math.floor(draftStock)));
@@ -243,7 +312,7 @@ function initTeam() {
     roster[pos] = p;
   });
 
-  return { name, roster, opponents, yr: 2024, history: [], sessionWins: 0, sessionLosses: 0, POappear: 0, SBappear: 0, SBwins: 0, badSeasonStreak: 0, fired: false, tradesUsedThisSeason: 0 };
+  return { name, roster, opponents, yr: 2024, history: [], sessionWins: 0, sessionLosses: 0, POappear: 0, SBappear: 0, SBwins: 0, badSeasonStreak: 0, fired: false, tradesUsedThisSeason: 0, awardsWon: [] };
 }
 
 // ─── COMPONENTS ─────────────────────────────────────────────────────────────
@@ -375,6 +444,46 @@ function GameResult({ week, game, record }) {
   );
 }
 
+function StandingsTable({ standings, yourTeamName }) {
+  return (
+    <div>
+      {DIVISIONS.map(div => {
+        const rows = standings
+          .filter(s => s.division === div.name)
+          .sort((a, b) => b.wins - a.wins);
+        return (
+          <div key={div.name} style={{ marginBottom: 18 }}>
+            <div style={{
+              fontFamily: "'Orbitron', monospace", fontSize: 11, color: "#64748b",
+              marginBottom: 8, letterSpacing: 2, textTransform: "uppercase"
+            }}>{div.name}</div>
+            <div style={{
+              background: "rgba(0,0,0,0.2)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.04)",
+              overflow: "hidden"
+            }}>
+              {rows.map((s, i) => (
+                <div key={s.name} style={{
+                  display: "flex", alignItems: "center", gap: 8, padding: "8px 12px",
+                  background: s.name === yourTeamName ? "rgba(245,158,11,0.08)" : "transparent",
+                  borderBottom: i < rows.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+                  fontFamily: "'Space Mono', monospace", fontSize: 12
+                }}>
+                  <span style={{ color: "#475569", minWidth: 16 }}>{i + 1}</span>
+                  <span style={{
+                    flex: 1, color: s.name === yourTeamName ? "#f59e0b" : "#e2e8f0",
+                    fontWeight: s.name === yourTeamName ? 700 : 400
+                  }}>{s.name}</span>
+                  <span style={{ color: "#94a3b8" }}>{s.wins}-{s.losses}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Btn({ children, onClick, variant = "primary", disabled, small }) {
   const styles = {
     primary: { bg: "linear-gradient(135deg, #f59e0b, #d97706)", text: "#0f172a", hoverBg: "linear-gradient(135deg, #fbbf24, #f59e0b)" },
@@ -464,6 +573,11 @@ export default function App() {
   const [tradeMode, setTradeMode] = useState(false);
   const [tradePos, setTradePos] = useState(null);
   const [tradeOffers, setTradeOffers] = useState([]);
+  const [draftPicksTotal, setDraftPicksTotal] = useState(0);
+  const [draftPicksRemaining, setDraftPicksRemaining] = useState(0);
+  const [draftedPositions, setDraftedPositions] = useState([]);
+  const [leagueStandings, setLeagueStandings] = useState([]);
+  const [showStandings, setShowStandings] = useState(false);
   const logRef = useRef(null);
 
   useEffect(() => {
@@ -472,9 +586,12 @@ export default function App() {
 
   useEffect(() => {
     if (!team) return;
-    saveGame({ phase, team, games, wins, weekNum, opponentPool, poRound, draftPO, draftClass, faClass, resignList });
+    saveGame({
+      phase, team, games, wins, weekNum, opponentPool, poRound, draftPO, draftClass, faClass, resignList,
+      draftPicksTotal, draftPicksRemaining, draftedPositions, leagueStandings
+    });
     setHasSave(true);
-  }, [phase, team, games, wins, weekNum, opponentPool, poRound, draftPO, draftClass, faClass, resignList]);
+  }, [phase, team, games, wins, weekNum, opponentPool, poRound, draftPO, draftClass, faClass, resignList, draftPicksTotal, draftPicksRemaining, draftedPositions, leagueStandings]);
 
   const addLog = useCallback((text, type = "normal") => {
     setLogs(prev => [...prev, { text, type }]);
@@ -506,6 +623,10 @@ export default function App() {
     setDraftClass(s.draftClass || null);
     setFaClass(s.faClass || null);
     setResignList(s.resignList || []);
+    setDraftPicksTotal(s.draftPicksTotal || 0);
+    setDraftPicksRemaining(s.draftPicksRemaining || 0);
+    setDraftedPositions(s.draftedPositions || []);
+    setLeagueStandings(s.leagueStandings || []);
     setLogs([]);
     setPhase(s.phase || PHASES.ROSTER_VIEW);
   };
@@ -538,6 +659,7 @@ export default function App() {
         sessionWins: prev.sessionWins + w,
         sessionLosses: prev.sessionLosses + (17 - w),
       }));
+      setLeagueStandings(generateLeagueStandings(team.name, w));
       setTimeout(() => setPhase(PHASES.POSTSEASON_CHECK), 300);
     }
   };
@@ -563,6 +685,10 @@ export default function App() {
     setLogs(newLogs);
 
     if (!made) {
+      const seasonAwards = rollAwards(team.roster);
+      if (seasonAwards.length > 0) {
+        setLogs(prev => [...prev, ...seasonAwards.map(a => ({ text: `🏆 ${a.award}: ${a.playerName} (${a.pos})`, type: "success" }))]);
+      }
       setTeam(prev => {
         const newStreak = prev.badSeasonStreak + 1;
         const fired = newStreak >= 3;
@@ -570,7 +696,8 @@ export default function App() {
           ...prev,
           badSeasonStreak: newStreak,
           fired,
-          history: [...prev.history, { yr: prev.yr, record: `${e}-${17 - e}`, result: "Missed Playoffs" }]
+          awardsWon: [...prev.awardsWon, ...seasonAwards.map(a => ({ ...a, yr: prev.yr }))],
+          history: [...prev.history, { yr: prev.yr, record: `${e}-${17 - e}`, result: "Missed Playoffs", awards: seasonAwards }]
         };
       });
       setPhase(PHASES.SEASON_END);
@@ -607,19 +734,29 @@ export default function App() {
         setPoRound(poRound + 1);
       } else {
         setLogs(prev => [...prev, { text: "YOU WON THE SUPER BOWL!", type: "success" }]);
+        const seasonAwards = rollAwards(team.roster);
+        if (seasonAwards.length > 0) {
+          setLogs(prev => [...prev, ...seasonAwards.map(a => ({ text: `🏆 ${a.award}: ${a.playerName} (${a.pos})`, type: "success" }))]);
+        }
         setTeam(prev => ({
           ...prev,
           SBappear: prev.SBappear + 1,
           SBwins: prev.SBwins + 1,
-          history: [...prev.history, { yr: prev.yr, record: `${wins}-${17 - wins}`, result: "Won the Super Bowl!" }]
+          awardsWon: [...prev.awardsWon, ...seasonAwards.map(a => ({ ...a, yr: prev.yr }))],
+          history: [...prev.history, { yr: prev.yr, record: `${wins}-${17 - wins}`, result: "Won the Super Bowl!", awards: seasonAwards }]
         }));
         setPhase(PHASES.SEASON_END);
       }
     } else {
       const lostIn = `Lost in ${roundName}`;
+      const seasonAwards = rollAwards(team.roster);
+      if (seasonAwards.length > 0) {
+        setLogs(prev => [...prev, ...seasonAwards.map(a => ({ text: `🏆 ${a.award}: ${a.playerName} (${a.pos})`, type: "success" }))]);
+      }
       setTeam(prev => ({
         ...prev,
-        history: [...prev.history, { yr: prev.yr, record: `${wins}-${17 - wins}`, result: lostIn }]
+        awardsWon: [...prev.awardsWon, ...seasonAwards.map(a => ({ ...a, yr: prev.yr }))],
+        history: [...prev.history, { yr: prev.yr, record: `${wins}-${17 - wins}`, result: lostIn, awards: seasonAwards }]
       }));
       setPhase(PHASES.SEASON_END);
     }
@@ -665,7 +802,11 @@ export default function App() {
       setTeam(prev => ({ ...prev, roster: { ...prev.roster, ...updates } }));
     }
     setResignList([]);
-    setDraftClass(generateDraftClass(wins, draftPO));
+    const picks = draftPickCount(draftPO);
+    setDraftPicksTotal(picks);
+    setDraftPicksRemaining(picks);
+    setDraftedPositions([]);
+    setDraftClass(generateDraftClass(wins, draftPO, []));
     setLogs([]);
     setPhase(PHASES.DRAFT);
   };
@@ -674,11 +815,22 @@ export default function App() {
     const player = draftClass[pos];
     addLog(`Drafted ${pos}: ${player.name} (${player.ovr} ovr, $${player.salary}M)`, "success");
     setTeam(prev => ({ ...prev, roster: { ...prev.roster, [pos]: player } }));
-    setFaClass(generateFAClass());
-    setTimeout(() => { setLogs([]); setPhase(PHASES.FREE_AGENCY); }, 600);
+
+    const newDrafted = [...draftedPositions, pos];
+    const remaining = draftPicksRemaining - 1;
+    setDraftedPositions(newDrafted);
+    setDraftPicksRemaining(remaining);
+
+    if (remaining > 0 && newDrafted.length < POSITIONS.length) {
+      setDraftClass(generateDraftClass(wins, draftPO, newDrafted));
+    } else {
+      setFaClass(generateFAClass());
+      setTimeout(() => { setLogs([]); setPhase(PHASES.FREE_AGENCY); }, 600);
+    }
   };
 
   const skipDraft = () => {
+    setDraftPicksRemaining(0);
     setFaClass(generateFAClass());
     setLogs([]);
     setPhase(PHASES.FREE_AGENCY);
@@ -939,7 +1091,7 @@ export default function App() {
         )}
 
         {/* ── POSTSEASON CHECK ── */}
-        {phase === PHASES.POSTSEASON_CHECK && (
+        {phase === PHASES.POSTSEASON_CHECK && team && (
           <div style={{ textAlign: "center" }}>
             <div style={{ fontFamily: "'Orbitron', monospace", fontSize: 16, color: "#94a3b8", marginBottom: 6, letterSpacing: 3 }}>
               SEASON COMPLETE
@@ -948,16 +1100,31 @@ export default function App() {
               fontFamily: "'Orbitron', monospace", fontSize: 28, fontWeight: 900,
               color: "#f59e0b", marginBottom: 24
             }}>{wins}-{17 - wins}</div>
-            {games.length > 0 && (
-              <div style={{
-                background: "rgba(0,0,0,0.25)", borderRadius: 8, padding: 14, marginBottom: 24,
-                maxHeight: 240, overflowY: "auto", border: "1px solid rgba(255,255,255,0.04)",
-                textAlign: "left"
-              }}>
-                {games.map((g, i) => <GameResult key={i} week={g.week} game={g.game} record={g.record} />)}
+
+            {showStandings ? (
+              <div style={{ textAlign: "left", marginBottom: 24 }}>
+                <StandingsTable standings={leagueStandings} yourTeamName={team.name} />
+                <div style={{ textAlign: "center" }}>
+                  <Btn variant="secondary" small onClick={() => setShowStandings(false)}>Back</Btn>
+                </div>
               </div>
+            ) : (
+              <>
+                {games.length > 0 && (
+                  <div style={{
+                    background: "rgba(0,0,0,0.25)", borderRadius: 8, padding: 14, marginBottom: 24,
+                    maxHeight: 240, overflowY: "auto", border: "1px solid rgba(255,255,255,0.04)",
+                    textAlign: "left"
+                  }}>
+                    {games.map((g, i) => <GameResult key={i} week={g.week} game={g.game} record={g.record} />)}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+                  <Btn variant="secondary" onClick={() => setShowStandings(true)}>View Standings</Btn>
+                  <Btn onClick={startPostseason}>Check Playoffs</Btn>
+                </div>
+              </>
             )}
-            <Btn onClick={startPostseason}>Check Playoffs</Btn>
           </div>
         )}
 
@@ -1082,7 +1249,7 @@ export default function App() {
             <div style={{
               fontFamily: "'Orbitron', monospace", fontSize: 14, letterSpacing: 3,
               color: "#e2e8f0", marginBottom: 4
-            }}>{team.yr} DRAFT</div>
+            }}>{team.yr} DRAFT &nbsp;&middot;&nbsp; PICK {draftPicksTotal - draftPicksRemaining + 1} OF {draftPicksTotal}</div>
             <div style={{
               fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#475569", marginBottom: 20
             }}>Scouts only give a range, not a number. True OVR is revealed once you pick. Draft picks can exceed the salary cap.</div>
@@ -1094,7 +1261,7 @@ export default function App() {
               marginBottom: 10, marginTop: 20, letterSpacing: 3
             }}>DRAFT CLASS</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {POSITIONS.map(pos => (
+              {POSITIONS.filter(pos => draftClass[pos]).map(pos => (
                 <PlayerCard key={pos} pos={pos} player={draftClass[pos]} scouting={draftClass[pos].scouting}
                   onClick={() => draftPlayer(pos)} actionLabel="DRAFT" />
               ))}
@@ -1103,7 +1270,9 @@ export default function App() {
             {logs.length > 0 && <div style={{ marginTop: 12 }}><LogPanel messages={logs} logRef={logRef} /></div>}
 
             <div style={{ textAlign: "center", marginTop: 20 }}>
-              <Btn variant="secondary" onClick={skipDraft}>Skip Draft</Btn>
+              <Btn variant="secondary" onClick={skipDraft}>
+                {draftPicksRemaining > 1 ? `Skip Remaining Picks (${draftPicksRemaining})` : "Skip Draft"}
+              </Btn>
             </div>
           </div>
         )}
@@ -1181,6 +1350,7 @@ export default function App() {
                 ["Playoffs", team.POappear],
                 ["SB Apps", team.SBappear],
                 ["Rings", team.SBwins],
+                ["Awards", team.awardsWon?.length || 0],
               ].map(([label, val]) => (
                 <div key={label} style={{
                   background: "rgba(255,255,255,0.02)", borderRadius: 8, padding: "14px 12px",
