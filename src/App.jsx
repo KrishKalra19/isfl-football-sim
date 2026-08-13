@@ -103,15 +103,21 @@ function developPlayer(p) {
   // Growth pulls toward the player's hidden potential ceiling rather than
   // climbing blindly — a high-potential rookie keeps growing well past where
   // a capped-out player would plateau.
-  const potential = p.potential != null ? p.potential : ovr;
+  let potential = p.potential != null ? p.potential : ovr;
   const gap = potential - ovr;
+  let breakout = false;
 
   if (p.devTrait === 0) {
     let gain = gap > 12 ? 2 + randInt(3) : gap > 0 ? 1 + randInt(2) : (Math.random() < 0.3 ? 1 : 0);
+    // Rare breakout season — a jump well beyond the normal curve that can
+    // blow past the player's known ceiling entirely. This is what makes a
+    // longshot bench stash worth gambling on.
+    if (Math.random() < 0.05) { gain += 6 + randInt(9); breakout = true; }
     ovr += gain;
   }
   else if (p.devTrait === 1) {
     let gain = gap > 10 ? 1 + randInt(2) : gap > 0 && Math.random() < 0.6 ? 1 : 0;
+    if (Math.random() < 0.035) { gain += 5 + randInt(7); breakout = true; }
     ovr += gain;
   }
   else if (p.devTrait === 2) {
@@ -122,9 +128,12 @@ function developPlayer(p) {
   else { if (Math.random() < 0.5) ovr--; if (Math.random() < 0.5) ovr--; ovr -= 3; }
 
   if (ovr > 99) ovr = 99;
+  if (breakout && ovr > potential) potential = ovr;
   if (ovr > potential) ovr = potential;
   p.ovr = ovr;
   p.ovrC = ovrC;
+  p.potential = potential;
+  p.breakout = breakout;
   return p;
 }
 
@@ -615,7 +624,7 @@ function RosterPanel({ roster, title, injuries = {}, bench }) {
         <span>OVR <b style={{ color: "#e2e8f0", fontSize: 14 }}>{ovr}</b></span>
         <span>OFF <b style={{ color: "#60a5fa", fontSize: 14 }}>{offOvr}</b></span>
         <span>DEF <b style={{ color: "#f472b6", fontSize: 14 }}>{defOvr}</b></span>
-        <span>CAP <b style={{ color: spent > 110 ? "#ef4444" : "#94a3b8", fontSize: 14 }}>${spent}M / $110M</b></span>
+        <span>CAP <b style={{ color: spent > SALARY_CAP ? "#ef4444" : "#94a3b8", fontSize: 14 }}>${spent}M / ${SALARY_CAP}M</b></span>
       </div>
     </div>
   );
@@ -846,6 +855,8 @@ const PHASES = {
 const PO_ROUNDS = ["Wildcard", "Divisional", "Conference Championship", "Super Bowl"];
 const PO_PENALTIES = [2, 4, 6, 8];
 const MAX_TRADES_PER_SEASON = 3;
+// Raised from $110M to account for bench salaries now counting against the cap.
+const SALARY_CAP = 135;
 
 const SAVE_KEY = "isfl-save-v1";
 function saveGame(state) {
@@ -1124,13 +1135,21 @@ export default function App() {
   };
 
   const startNewSeason = () => {
+    const breakouts = [];
     const newRoster = {};
-    POSITIONS.forEach(pos => { newRoster[pos] = developPlayer(team.roster[pos]); });
+    POSITIONS.forEach(pos => {
+      const dev = developPlayer(team.roster[pos]);
+      if (dev.breakout) breakouts.push(`🚀 ${dev.name} (${pos}) had a breakout season — jumped to ${dev.ovr} ovr!`);
+      newRoster[pos] = dev;
+    });
 
     const newBench = {};
     POSITIONS.forEach(pos => {
       const b = (team.bench || {})[pos];
-      newBench[pos] = b ? developPlayer(b) : null;
+      if (!b) { newBench[pos] = null; return; }
+      const dev = developPlayer(b);
+      if (dev.breakout) breakouts.push(`🚀 ${dev.name} (${pos}, bench) had a breakout season — jumped to ${dev.ovr} ovr!`);
+      newBench[pos] = dev;
     });
 
     const needsResignArr = [];
@@ -1147,7 +1166,7 @@ export default function App() {
 
     setTeam(prev => ({ ...prev, roster: { ...newRoster }, bench: { ...newBench }, yr: prev.yr + 1 }));
     setResignList(needsResignArr);
-    setLogs([]);
+    setLogs(breakouts.map(text => ({ text, type: "success" })));
     setPhase(PHASES.RESIGN);
   };
 
@@ -1242,8 +1261,8 @@ export default function App() {
     const current = toBench ? (team.bench && team.bench[pos]) : team.roster[pos];
     const currentSalary = current ? current.salary : 0;
     const newSpent = calcTotalSpent(team.roster, team.bench) - currentSalary + fa.salary;
-    if (newSpent > 110) {
-      addLog(`Can't afford ${fa.name} — would put you at $${newSpent}M/$110M`, "error");
+    if (newSpent > SALARY_CAP) {
+      addLog(`Can't afford ${fa.name} — would put you at $${newSpent}M/$${SALARY_CAP}M`, "error");
       return;
     }
     if (toBench) {
@@ -1299,8 +1318,8 @@ export default function App() {
   const acceptTrade = (offer) => {
     const current = team.roster[tradePos];
     const newSpent = calcTotalSpent(team.roster, team.bench) - current.salary + offer.player.salary;
-    if (newSpent > 110) {
-      addLog(`Trade rejected — taking on ${offer.player.name} would put you at $${newSpent}M/$110M`, "error");
+    if (newSpent > SALARY_CAP) {
+      addLog(`Trade rejected — taking on ${offer.player.name} would put you at $${newSpent}M/$${SALARY_CAP}M`, "error");
       return;
     }
     const pickNote = offer.requiresPick ? " + a future draft pick" : "";
@@ -1422,7 +1441,7 @@ export default function App() {
               }}>
                 <p style={{ marginBottom: 12 }}>Pick your franchise from three divisions, then manage 3 offensive positions (QB, RB, WR) and 3 defensive (EDGE, LB, CB). Each player has an OVR rating that drives game simulation.</p>
                 <p style={{ marginBottom: 12 }}>Position importance: QB &gt; EDGE &gt; CB &gt; WR/LB &gt; RB. Younger players develop and improve; players in their mid-30s tend to decline.</p>
-                <p style={{ marginBottom: 12 }}>Salary cap is $110M. Every offseason you re-sign expiring contracts, make 1&ndash;3 draft picks (bad seasons earn more), then hit free agency. Draft prospects only show a scouted range &mdash; their true OVR is revealed once you pick. Every player also has a hidden growth ceiling, so a scouting tag hinting at real upside is worth chasing even late in a career.</p>
+                <p style={{ marginBottom: 12 }}>Salary cap is ${SALARY_CAP}M. Every offseason you re-sign expiring contracts, make 1&ndash;3 draft picks (bad seasons earn more), then hit free agency. Draft prospects only show a scouted range &mdash; their true OVR is revealed once you pick. Every player also has a hidden growth ceiling, so a scouting tag hinting at real upside is worth chasing even late in a career &mdash; and a rare breakout season can blow past it entirely.</p>
                 <p style={{ marginBottom: 12 }}>Each position has one bench slot. Draft or sign a prospect to the bench instead of starting them to develop them without losing your current starter, then Promote them into the lineup (or Release them) whenever you're ready from the roster screen. Bench salaries still count against the cap.</p>
                 <p style={{ marginBottom: 12 }}>During the season you get 3 looks at the trade market &mdash; checking offers for a position uses one, whether or not you deal, so choose carefully. Most offers are lateral; a real upgrade will cost you a future draft pick. Watch for injuries too: a banged-up starter plays at reduced strength until they heal.</p>
                 <p style={{ marginBottom: 12 }}>Finish with 9+ wins to make the playoffs (13+ gets a first-round bye). Miss the playoffs three seasons in a row and ownership fires you.</p>
@@ -1640,16 +1659,38 @@ export default function App() {
 
         {phase === PHASES.REGULAR_SEASON && team && !tradeMode && (
           <div>
+            {weekNum <= 17 && (
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap",
+                background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)",
+                borderRadius: 10, padding: "14px 20px", marginBottom: 20
+              }}>
+                <div>
+                  <div style={{
+                    fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#94a3b8",
+                    letterSpacing: 2, textTransform: "uppercase"
+                  }}>Week</div>
+                  <div style={{ fontFamily: "'Orbitron', monospace", fontWeight: 900, fontSize: 28, color: "#f59e0b" }}>
+                    {weekNum}<span style={{ fontSize: 15, color: "#64748b", fontWeight: 700 }}> / 17</span>
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{
+                    fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#94a3b8",
+                    letterSpacing: 2, textTransform: "uppercase"
+                  }}>Record</div>
+                  <div style={{ fontFamily: "'Orbitron', monospace", fontWeight: 900, fontSize: 28, color: "#e2e8f0" }}>
+                    {wins}-{games.length - wins}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <RosterPanel roster={team.roster} injuries={team.injuries || {}} bench={team.bench} title="Roster" />
             <BenchPanel bench={team.bench || {}} onPromote={promoteBench} onRelease={releaseBench} />
 
             {weekNum <= 17 && (
               <div style={{ marginBottom: 16 }}>
-                <div style={{
-                  fontFamily: "'Space Mono', monospace", fontSize: 13, color: "#94a3b8", marginBottom: 12
-                }}>
-                  Week {weekNum} of 17 &nbsp;|&nbsp; Record: {wins}-{games.length - wins}
-                </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <Btn onClick={() => simWeeks(1)} variant="secondary">1 Week</Btn>
                   <Btn onClick={() => simWeeks(4)} variant="secondary">4 Weeks</Btn>
@@ -1794,7 +1835,7 @@ export default function App() {
             }}>RE-SIGNING</div>
             <div style={{
               fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#475569", marginBottom: 20
-            }}>{team.yr} Offseason &nbsp;|&nbsp; Cap: ${calcTotalSpent(team.roster, team.bench)}M / $110M</div>
+            }}>{team.yr} Offseason &nbsp;|&nbsp; Cap: ${calcTotalSpent(team.roster, team.bench)}M / ${SALARY_CAP}M</div>
 
             <RosterPanel roster={team.roster} injuries={team.injuries || {}} bench={team.bench} title="Current Roster" />
             <BenchPanel bench={team.bench || {}} />
@@ -1892,7 +1933,7 @@ export default function App() {
             }}>FREE AGENCY</div>
             <div style={{
               fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#475569", marginBottom: 20
-            }}>Sign as many as you can afford &nbsp;|&nbsp; Cap: ${calcTotalSpent(team.roster, team.bench)}M / $110M</div>
+            }}>Sign as many as you can afford &nbsp;|&nbsp; Cap: ${calcTotalSpent(team.roster, team.bench)}M / ${SALARY_CAP}M</div>
 
             <RosterPanel roster={team.roster} injuries={team.injuries || {}} bench={team.bench} title="Your Team" />
             <BenchPanel bench={team.bench || {}} />
