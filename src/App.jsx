@@ -15,7 +15,7 @@ const ALL_TEAM_NAMES = [
 const DIVISIONS = [
   { name: "Prestige Division", teams: ["Dorne Defenders", "King's Landing Knights", "Westeros White Walkers", "Winterfell Wizards", "Hawkins Hawks"] },
   { name: "Workplace Division", teams: ["Scranton Stranglers", "Pawnee Penguins", "Greendale Humans", "New York 30Rockers", "Dunder Mifflin Devils"] },
-  { name: "Animated Division", teams: ["Albuquerque Blues", "Orange County Arresters", "Springfield Isotopes", "Crenshaw Cavaliers", "Quahog Quagmires"] },
+  { name: "Wildcard Division", teams: ["Albuquerque Blues", "Orange County Arresters", "Springfield Isotopes", "Crenshaw Cavaliers", "Quahog Quagmires"] },
 ];
 
 function teamDivision(name) {
@@ -1114,10 +1114,13 @@ export default function App() {
                 fontSize: 15, color: "#94a3b8", lineHeight: 2, textAlign: "left",
                 border: "1px solid rgba(255,255,255,0.05)"
               }}>
-                <p style={{ marginBottom: 12 }}>Your roster has 3 offensive positions (QB, RB, WR) and 3 defensive (EDGE, LB, CB). Each player has an OVR rating.</p>
-                <p style={{ marginBottom: 12 }}>Position importance: QB &gt; EDGE &gt; CB &gt; WR/LB &gt; RB. Younger players improve, older ones decline.</p>
-                <p style={{ marginBottom: 12 }}>After each 17-game season, there's a re-signing period, draft, and free agency. The goal: win as many Super Bowls as you can.</p>
-                <p>Salary cap is $110M. Manage your money wisely.</p>
+                <p style={{ marginBottom: 12 }}>Pick your franchise from three divisions, then manage 3 offensive positions (QB, RB, WR) and 3 defensive (EDGE, LB, CB). Each player has an OVR rating that drives game simulation.</p>
+                <p style={{ marginBottom: 12 }}>Position importance: QB &gt; EDGE &gt; CB &gt; WR/LB &gt; RB. Younger players develop and improve; players in their mid-30s tend to decline.</p>
+                <p style={{ marginBottom: 12 }}>Salary cap is $110M. Every offseason you re-sign expiring contracts, make 1&ndash;3 draft picks (bad seasons earn more), then hit free agency. Draft prospects only show a scouted range &mdash; their true OVR is revealed once you pick.</p>
+                <p style={{ marginBottom: 12 }}>During the season you can make up to 3 trades &mdash; shop a position for a replacement if an early loss exposes a weakness. Watch for injuries too: a banged-up starter plays at reduced strength until they heal.</p>
+                <p style={{ marginBottom: 12 }}>Finish with 9+ wins to make the playoffs (13+ gets a first-round bye). Miss the playoffs three seasons in a row and ownership fires you.</p>
+                <p style={{ marginBottom: 12 }}>Standout seasons earn awards &mdash; MVP, Offensive/Defensive Player of the Year, Rookie of the Year, Comeback Player &mdash; and every franchise you complete is recorded in the Hall of Fame.</p>
+                <p>Your progress saves automatically, so you can close the tab and pick up right where you left off.</p>
               </div>
             )}
             <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
