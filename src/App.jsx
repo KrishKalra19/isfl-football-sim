@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 // ─── DATA ───────────────────────────────────────────────────────────────────
 const FIRST_NAMES = ["Jacob","Michael","Joshua","Matthew","Daniel","Christopher","Andrew","Ethan","Joseph","William","Anthony","David","Alexander","Nicholas","Ryan","Tyler","James","John","Jonathan","Noah","Brandon","Christian","Dylan","Samuel","Benjamin","Nathan","Zachary","Logan","Justin","Gabriel","Jose","Austin","Kevin","Elijah","Caleb","Robert","Thomas","Jordan","Cameron","Jack","Hunter","Jackson","Angel","Isaiah","Evan","Isaac","Luke","Mason","Jayden","Jason","Gavin","Aaron","Connor","Aiden","Aidan","Kyle","Juan","Charles","Luis","Adam","Lucas","Brian","Eric","Adrian","Nathaniel","Sean","Alex","Carlos","Bryan","Ian","Owen","Jesus","Landon","Julian","Chase","Cole","Diego","Jeremiah","Steven","Sebastian","Xavier","Timothy","Carter","Wyatt","Brayden","Blake","Hayden","Devin","Cody","Richard","Seth","Dominic","Jaden","Antonio","Miguel","Liam","Patrick","Carson","Jesse","Tristan","Alejandro","Henry","Victor","Trevor","Bryce","Jake","Riley","Colin","Jared","Jeremy","Mark","Caden","Garrett","Parker","Marcus","Vincent","Kaleb","Kaden","Brady","Colton","Kenneth","Joel","Oscar","Josiah","Jorge","Ashton","Cooper","Tanner","Eduardo","Paul","Edward","Ivan","Preston","Maxwell","Alan","Levi","Stephen","Grant","Nicolas","Dakota","Omar","Alexis","George","Eli","Collin","Spencer","Gage","Max","Ricardo","Cristian","Derek","Micah","Brody","Francisco","Nolan","Ayden","Dalton","Shane","Peter","Damian","Jeffrey","Brendan","Travis","Fernando","Peyton","Conner","Andres","Javier","Giovanni","Shawn","Braden","Jonah","Bradley","Cesar","Emmanuel","Manuel","Edgar","Mario","Erik","Edwin","Johnathan","Devon","Erick","Wesley","Oliver","Trenton","Hector","Malachi","Jalen","Raymond","Gregory","Abraham","Elias","Leonardo","Sergio","Donovan","Colby","Marco","Bryson","Martin"];
@@ -168,6 +168,17 @@ function calcSalarySpent(roster) {
   return POSITIONS.reduce((s, pos) => s + roster[pos].salary, 0);
 }
 
+function applyInjuries(roster, injuries) {
+  const out = {};
+  POSITIONS.forEach(pos => {
+    const inj = injuries[pos];
+    out[pos] = inj ? { ...roster[pos], ovr: Math.max(30, roster[pos].ovr - inj.penalty) } : roster[pos];
+  });
+  return out;
+}
+
+const INJURY_CHANCE_PER_WEEK = 0.05;
+
 function playGame(offOvr, defOvr, opponentTeams) {
   const teamsCopy = [...opponentTeams];
   const idx = randInt(teamsCopy.length);
@@ -299,10 +310,16 @@ function generateFAClass() {
   return players;
 }
 
-function initTeam() {
+function initTeam(chosenName) {
   const allNames = [...ALL_TEAM_NAMES];
-  const idx = randInt(allNames.length);
-  const name = allNames.splice(idx, 1)[0];
+  let name;
+  if (chosenName && allNames.includes(chosenName)) {
+    name = chosenName;
+    allNames.splice(allNames.indexOf(chosenName), 1);
+  } else {
+    const idx = randInt(allNames.length);
+    name = allNames.splice(idx, 1)[0];
+  }
   const opponents = allNames;
 
   const roster = {};
@@ -312,12 +329,12 @@ function initTeam() {
     roster[pos] = p;
   });
 
-  return { name, roster, opponents, yr: 2024, history: [], sessionWins: 0, sessionLosses: 0, POappear: 0, SBappear: 0, SBwins: 0, badSeasonStreak: 0, fired: false, tradesUsedThisSeason: 0, awardsWon: [] };
+  return { name, roster, opponents, yr: 2024, history: [], sessionWins: 0, sessionLosses: 0, POappear: 0, SBappear: 0, SBwins: 0, badSeasonStreak: 0, fired: false, tradesUsedThisSeason: 0, awardsWon: [], injuries: {} };
 }
 
 // ─── COMPONENTS ─────────────────────────────────────────────────────────────
 
-function PlayerCard({ pos, player, highlight, onClick, compact, actionLabel, scouting }) {
+function PlayerCard({ pos, player, highlight, onClick, compact, actionLabel, scouting, injury }) {
   const traitLabel = ["Rising", "Prime", "Steady", "Declining", "Veteran"][player.devTrait];
   const traitColor = ["#4ade80", "#60a5fa", "#a78bfa", "#fb923c", "#ef4444"][player.devTrait];
   const dev = devStr(player);
@@ -355,6 +372,7 @@ function PlayerCard({ pos, player, highlight, onClick, compact, actionLabel, sco
           <span>{player.age}y/o</span>
           <span style={{ color: traitColor, fontWeight: 700 }}>{traitLabel}</span>
           <span>${player.salary}M</span>
+          {injury && <span style={{ color: "#ef4444", fontWeight: 700 }}>🩹 Out {injury.weeksLeft}wk</span>}
         </div>
       </div>
       <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 10 }}>
@@ -393,7 +411,7 @@ function PlayerCard({ pos, player, highlight, onClick, compact, actionLabel, sco
   );
 }
 
-function RosterPanel({ roster, title }) {
+function RosterPanel({ roster, title, injuries = {} }) {
   const offOvr = Math.floor(calcOffOvr(roster));
   const defOvr = Math.floor(calcDefOvr(roster));
   const ovr = calcOvr(roster);
@@ -407,7 +425,7 @@ function RosterPanel({ roster, title }) {
         }}>{title}</div>
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {POSITIONS.map(pos => <PlayerCard key={pos} pos={pos} player={roster[pos]} />)}
+        {POSITIONS.map(pos => <PlayerCard key={pos} pos={pos} player={roster[pos]} injury={injuries[pos]} />)}
       </div>
       <div style={{
         display: "flex", gap: 16, marginTop: 14, fontFamily: "'Space Mono', monospace",
@@ -440,6 +458,70 @@ function GameResult({ week, game, record }) {
         minWidth: 62, textAlign: "right"
       }}>{game.result}</span>
       <span style={{ color: "#475569", fontSize: 11, minWidth: 36, textAlign: "right" }}>{record}</span>
+    </div>
+  );
+}
+
+const CONFETTI_COLORS = ["#f59e0b", "#ef4444", "#4ade80", "#60a5fa", "#a78bfa", "#fbbf24"];
+
+function Confetti() {
+  const pieces = useMemo(() => Array.from({ length: 80 }, (_, i) => ({
+    id: i,
+    left: Math.random() * 100,
+    delay: Math.random() * 0.6,
+    duration: 2.5 + Math.random() * 1.5,
+    color: CONFETTI_COLORS[randInt(CONFETTI_COLORS.length)],
+    rotate: Math.random() * 360,
+    size: 6 + Math.random() * 6,
+  })), []);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, pointerEvents: "none", overflow: "hidden", zIndex: 9999 }}>
+      {pieces.map(p => (
+        <div key={p.id} style={{
+          position: "absolute", top: -20, left: `${p.left}%`,
+          width: p.size, height: p.size * 0.4, background: p.color,
+          animation: `isfl-confetti-fall ${p.duration}s ease-in ${p.delay}s forwards`,
+          transform: `rotate(${p.rotate}deg)`,
+          borderRadius: 2,
+        }} />
+      ))}
+    </div>
+  );
+}
+
+function PlayoffBracket({ results, currentRound }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+      {PO_ROUNDS.map((name, idx) => {
+        const res = results.find(r => r.round === idx);
+        const isCurrent = idx === currentRound && !res;
+        return (
+          <div key={name} style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+            padding: "10px 14px", borderRadius: 8, flexWrap: "wrap",
+            background: isCurrent ? "rgba(245,158,11,0.08)" : "rgba(255,255,255,0.02)",
+            border: isCurrent ? "1px solid rgba(245,158,11,0.3)" : "1px solid rgba(255,255,255,0.05)",
+          }}>
+            <span style={{
+              fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 13,
+              color: isCurrent ? "#f59e0b" : res ? "#e2e8f0" : "#475569"
+            }}>{name}</span>
+            {res?.bye ? (
+              <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#60a5fa" }}>BYE</span>
+            ) : res ? (
+              <span style={{
+                fontFamily: "'Space Mono', monospace", fontSize: 11,
+                color: res.isWin ? "#4ade80" : "#ef4444"
+              }}>{res.yourScore}-{res.oppScore} vs {res.oppName} &middot; {res.isWin ? "WON" : "LOST"}</span>
+            ) : (
+              <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#334155" }}>
+                {isCurrent ? "IN PROGRESS" : "—"}
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -531,10 +613,10 @@ function LogPanel({ messages, logRef }) {
 
 // ─── MAIN APP ───────────────────────────────────────────────────────────────
 const PHASES = {
-  WELCOME: "WELCOME", ROSTER_VIEW: "ROSTER_VIEW", REGULAR_SEASON: "REGULAR_SEASON",
+  WELCOME: "WELCOME", TEAM_SELECT: "TEAM_SELECT", ROSTER_VIEW: "ROSTER_VIEW", REGULAR_SEASON: "REGULAR_SEASON",
   POSTSEASON_CHECK: "POSTSEASON_CHECK", POSTSEASON_ROUND: "POSTSEASON_ROUND",
   SEASON_END: "SEASON_END", RESIGN: "RESIGN", DRAFT: "DRAFT",
-  FREE_AGENCY: "FREE_AGENCY", SESSION_END: "SESSION_END",
+  FREE_AGENCY: "FREE_AGENCY", SESSION_END: "SESSION_END", HALL_OF_FAME: "HALL_OF_FAME",
 };
 
 const PO_ROUNDS = ["Wildcard", "Divisional", "Conference Championship", "Super Bowl"];
@@ -553,6 +635,22 @@ function loadGame() {
 }
 function clearSave() {
   try { localStorage.removeItem(SAVE_KEY); } catch {}
+}
+
+const HOF_KEY = "isfl-hof-v1";
+function loadHOF() {
+  try {
+    const raw = localStorage.getItem(HOF_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+function addToHOF(entry) {
+  try {
+    const entries = loadHOF();
+    entries.push(entry);
+    while (entries.length > 50) entries.shift();
+    localStorage.setItem(HOF_KEY, JSON.stringify(entries));
+  } catch {}
 }
 
 export default function App() {
@@ -578,6 +676,8 @@ export default function App() {
   const [draftedPositions, setDraftedPositions] = useState([]);
   const [leagueStandings, setLeagueStandings] = useState([]);
   const [showStandings, setShowStandings] = useState(false);
+  const [playoffResults, setPlayoffResults] = useState([]);
+  const [hofEntries, setHofEntries] = useState([]);
   const logRef = useRef(null);
 
   useEffect(() => {
@@ -588,26 +688,31 @@ export default function App() {
     if (!team) return;
     saveGame({
       phase, team, games, wins, weekNum, opponentPool, poRound, draftPO, draftClass, faClass, resignList,
-      draftPicksTotal, draftPicksRemaining, draftedPositions, leagueStandings
+      draftPicksTotal, draftPicksRemaining, draftedPositions, leagueStandings, playoffResults
     });
     setHasSave(true);
-  }, [phase, team, games, wins, weekNum, opponentPool, poRound, draftPO, draftClass, faClass, resignList, draftPicksTotal, draftPicksRemaining, draftedPositions, leagueStandings]);
+  }, [phase, team, games, wins, weekNum, opponentPool, poRound, draftPO, draftClass, faClass, resignList, draftPicksTotal, draftPicksRemaining, draftedPositions, leagueStandings, playoffResults]);
 
   const addLog = useCallback((text, type = "normal") => {
     setLogs(prev => [...prev, { text, type }]);
   }, []);
 
-  const startGame = () => {
-    const t = initTeam();
+  const goToHallOfFame = () => {
+    setHofEntries(loadHOF());
+    setPhase(PHASES.HALL_OF_FAME);
+  };
+
+  const goToTeamSelect = () => {
+    if (hasSave && !window.confirm("Starting a new franchise will erase your saved game. Continue?")) return;
+    clearSave();
+    setPhase(PHASES.TEAM_SELECT);
+  };
+
+  const selectTeam = (name) => {
+    const t = initTeam(name);
     setTeam(t);
     setPhase(PHASES.ROSTER_VIEW);
     setOpponentPool([...t.opponents]);
-  };
-
-  const startNewFranchise = () => {
-    if (hasSave && !window.confirm("Starting a new franchise will erase your saved game. Continue?")) return;
-    clearSave();
-    startGame();
   };
 
   const continueGame = () => {
@@ -627,6 +732,7 @@ export default function App() {
     setDraftPicksRemaining(s.draftPicksRemaining || 0);
     setDraftedPositions(s.draftedPositions || []);
     setLeagueStandings(s.leagueStandings || []);
+    setPlayoffResults(s.playoffResults || []);
     setLogs([]);
     setPhase(s.phase || PHASES.ROSTER_VIEW);
   };
@@ -637,10 +743,34 @@ export default function App() {
     let w = wins;
     const newGames = [...games];
     let pool = [...opponentPool];
+    const injuries = { ...team.injuries };
+    const injuryLogs = [];
 
     for (let wk = weekNum; wk <= target; wk++) {
-      const offOvr = calcOffOvr(team.roster);
-      const defOvr = calcDefOvr(team.roster);
+      POSITIONS.forEach(pos => {
+        const inj = injuries[pos];
+        if (!inj) return;
+        inj.weeksLeft -= 1;
+        if (inj.weeksLeft <= 0) {
+          injuryLogs.push({ text: `✅ ${team.roster[pos].name} (${pos}) is back to full health.`, type: "success" });
+          delete injuries[pos];
+        }
+      });
+
+      if (Math.random() < INJURY_CHANCE_PER_WEEK) {
+        const healthy = POSITIONS.filter(pos => !injuries[pos]);
+        if (healthy.length > 0) {
+          const pos = pick(healthy);
+          const weeksLeft = 1 + randInt(3);
+          const penalty = 6 + randInt(10);
+          injuries[pos] = { weeksLeft, penalty };
+          injuryLogs.push({ text: `🩹 ${team.roster[pos].name} (${pos}) is banged up — out ${weeksLeft} week${weeksLeft > 1 ? "s" : ""}.`, type: "error" });
+        }
+      }
+
+      const effRoster = applyInjuries(team.roster, injuries);
+      const offOvr = calcOffOvr(effRoster);
+      const defOvr = calcDefOvr(effRoster);
       if (pool.length === 0) pool = [...team.opponents];
       const g = playGame(offOvr, defOvr, pool);
       pool = g.remainingTeams;
@@ -652,6 +782,8 @@ export default function App() {
     setWins(w);
     setWeekNum(target + 1);
     setOpponentPool(pool);
+    if (injuryLogs.length > 0) setLogs(prev => [...prev, ...injuryLogs]);
+    setTeam(prev => ({ ...prev, injuries }));
 
     if (target >= 17) {
       setTeam(prev => ({
@@ -707,6 +839,7 @@ export default function App() {
     setTeam(prev => ({ ...prev, POappear: prev.POappear + 1, badSeasonStreak: 0 }));
     setDraftPO(0);
     setPoRound(bye ? 1 : 0);
+    setPlayoffResults(bye ? [{ round: 0, bye: true }] : []);
     setPhase(PHASES.POSTSEASON_ROUND);
   };
 
@@ -723,6 +856,7 @@ export default function App() {
       text: `${roundName}: ${g.yourScore} - ${g.oppScore} vs ${g.oppName}  →  ${g.result}`,
       type: g.isWin ? "success" : "error"
     }]);
+    setPlayoffResults(prev => [...prev, { round: poRound, yourScore: g.yourScore, oppScore: g.oppScore, oppName: g.oppName, isWin: g.isWin }]);
 
     if (g.isWin) {
       if (poRound < 3) {
@@ -854,7 +988,7 @@ export default function App() {
     setWeekNum(1);
     setOpponentPool([...team.opponents]);
     setLogs([]);
-    setTeam(prev => ({ ...prev, tradesUsedThisSeason: 0 }));
+    setTeam(prev => ({ ...prev, tradesUsedThisSeason: 0, injuries: {} }));
     setPhase(PHASES.REGULAR_SEASON);
   };
 
@@ -882,7 +1016,24 @@ export default function App() {
     closeTrade();
   };
 
-  const endSession = () => { setPhase(PHASES.SESSION_END); };
+  const endSession = () => {
+    if (team) {
+      addToHOF({
+        teamName: team.name,
+        startYr: team.history[0]?.yr ?? team.yr,
+        endYr: team.yr,
+        sessionWins: team.sessionWins,
+        sessionLosses: team.sessionLosses,
+        POappear: team.POappear,
+        SBappear: team.SBappear,
+        SBwins: team.SBwins,
+        fired: team.fired,
+        awards: (team.awardsWon || []).map(a => ({ ...a, teamName: team.name })),
+        endedAt: Date.now(),
+      });
+    }
+    setPhase(PHASES.SESSION_END);
+  };
 
   const resetAll = () => {
     clearSave();
@@ -908,6 +1059,11 @@ export default function App() {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
         body { background: #06090f; }
+        @keyframes isfl-confetti-fall {
+          0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+          100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        }
+        .isfl-team-pick:hover { background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.3); }
       `}</style>
 
       <div style={{ maxWidth: 680, margin: "0 auto" }}>
@@ -968,14 +1124,123 @@ export default function App() {
               {hasSave ? (
                 <>
                   <Btn onClick={continueGame}>Continue Franchise</Btn>
-                  <Btn variant="secondary" onClick={startNewFranchise}>New Franchise</Btn>
+                  <Btn variant="secondary" onClick={goToTeamSelect}>New Franchise</Btn>
                 </>
               ) : (
-                <Btn onClick={startGame}>Play Ball</Btn>
+                <Btn onClick={goToTeamSelect}>Play Ball</Btn>
               )}
               <Btn variant="secondary" onClick={() => setShowHelp(!showHelp)}>
                 {showHelp ? "Got it" : "How to Play"}
               </Btn>
+              <Btn variant="secondary" onClick={goToHallOfFame}>Hall of Fame</Btn>
+            </div>
+          </div>
+        )}
+
+        {/* ── TEAM SELECT ── */}
+        {phase === PHASES.TEAM_SELECT && (
+          <div>
+            <div style={{ fontSize: 16, color: "#94a3b8", marginBottom: 24, textAlign: "center" }}>
+              Choose your franchise.
+            </div>
+            {DIVISIONS.map(div => (
+              <div key={div.name} style={{ marginBottom: 20 }}>
+                <div style={{
+                  fontFamily: "'Orbitron', monospace", fontSize: 11, color: "#64748b",
+                  marginBottom: 8, letterSpacing: 3, textTransform: "uppercase"
+                }}>{div.name}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {div.teams.map(name => (
+                    <button key={name} className="isfl-team-pick" onClick={() => selectTeam(name)} style={{
+                      textAlign: "left", padding: "12px 16px", borderRadius: 8,
+                      background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
+                      color: "#e2e8f0", fontFamily: "'Rajdhani', sans-serif", fontWeight: 600, fontSize: 15,
+                      cursor: "pointer", transition: "all 0.15s"
+                    }}>{name}</button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div style={{ textAlign: "center", marginTop: 8 }}>
+              <Btn variant="secondary" small onClick={() => setPhase(PHASES.WELCOME)}>Back</Btn>
+            </div>
+          </div>
+        )}
+
+        {/* ── HALL OF FAME ── */}
+        {phase === PHASES.HALL_OF_FAME && (
+          <div>
+            <div style={{
+              fontFamily: "'Orbitron', monospace", fontSize: 14, letterSpacing: 3,
+              color: "#e2e8f0", marginBottom: 20, textAlign: "center"
+            }}>HALL OF FAME</div>
+
+            {hofEntries.length === 0 ? (
+              <div style={{ textAlign: "center", color: "#64748b", fontSize: 14, padding: "20px 0" }}>
+                No franchises completed yet. Finish a season and end your session to make history.
+              </div>
+            ) : (
+              <>
+                <div style={{
+                  fontFamily: "'Orbitron', monospace", fontSize: 11, color: "#64748b",
+                  marginBottom: 8, letterSpacing: 2, textTransform: "uppercase"
+                }}>Franchise Legends</div>
+                <div style={{
+                  background: "rgba(0,0,0,0.2)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.04)",
+                  overflow: "hidden", marginBottom: 24
+                }}>
+                  {[...hofEntries]
+                    .sort((a, b) => (b.SBwins - a.SBwins) || (b.POappear - a.POappear) || (b.sessionWins - a.sessionWins))
+                    .slice(0, 10)
+                    .map((e, i) => (
+                      <div key={i} style={{
+                        display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", flexWrap: "wrap",
+                        borderBottom: "1px solid rgba(255,255,255,0.04)",
+                        fontFamily: "'Space Mono', monospace", fontSize: 12
+                      }}>
+                        <span style={{ color: "#475569", minWidth: 16 }}>{i + 1}</span>
+                        <span style={{ flex: 1, color: "#e2e8f0", fontWeight: 600 }}>
+                          {e.teamName}{e.fired && <span style={{ color: "#ef4444" }}> (fired)</span>}
+                        </span>
+                        <span style={{ color: "#64748b" }}>{e.startYr}&ndash;{e.endYr}</span>
+                        <span style={{ color: "#94a3b8" }}>{e.sessionWins}-{e.sessionLosses}</span>
+                        <span style={{ color: "#f59e0b" }}>🏆 {e.SBwins}</span>
+                      </div>
+                    ))}
+                </div>
+
+                <div style={{
+                  fontFamily: "'Orbitron', monospace", fontSize: 11, color: "#64748b",
+                  marginBottom: 8, letterSpacing: 2, textTransform: "uppercase"
+                }}>All-Time Award Winners</div>
+                <div style={{
+                  background: "rgba(0,0,0,0.2)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.04)",
+                  overflow: "hidden", maxHeight: 300, overflowY: "auto"
+                }}>
+                  {hofEntries.flatMap(e => e.awards || [])
+                    .sort((a, b) => b.yr - a.yr)
+                    .slice(0, 30)
+                    .map((a, i) => (
+                      <div key={i} style={{
+                        display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", flexWrap: "wrap",
+                        borderBottom: "1px solid rgba(255,255,255,0.04)",
+                        fontFamily: "'Space Mono', monospace", fontSize: 11
+                      }}>
+                        <span style={{ color: "#475569", minWidth: 34 }}>{a.yr}</span>
+                        <span style={{ color: "#fbbf24", flex: 1 }}>{a.award}</span>
+                        <span style={{ color: "#e2e8f0" }}>{a.playerName} ({a.pos})</span>
+                        <span style={{ color: "#64748b" }}>{a.teamName}</span>
+                      </div>
+                    ))}
+                  {hofEntries.flatMap(e => e.awards || []).length === 0 && (
+                    <div style={{ padding: 14, color: "#475569", fontSize: 12, textAlign: "center" }}>No awards yet.</div>
+                  )}
+                </div>
+              </>
+            )}
+
+            <div style={{ textAlign: "center", marginTop: 24 }}>
+              <Btn variant="secondary" onClick={() => setPhase(PHASES.WELCOME)}>Back</Btn>
             </div>
           </div>
         )}
@@ -986,7 +1251,7 @@ export default function App() {
             <div style={{ fontSize: 16, color: "#94a3b8", marginBottom: 20, textAlign: "center", lineHeight: 1.8 }}>
               You are the new GM of the <b style={{ color: "#f59e0b" }}>{team.name}</b>.
             </div>
-            <RosterPanel roster={team.roster} title="Your Roster" />
+            <RosterPanel roster={team.roster} injuries={team.injuries || {}} title="Your Roster" />
             <div style={{ textAlign: "center", marginTop: 24 }}>
               <Btn onClick={() => { setOpponentPool([...team.opponents]); setPhase(PHASES.REGULAR_SEASON); }}>
                 Start Season
@@ -1052,7 +1317,7 @@ export default function App() {
 
         {phase === PHASES.REGULAR_SEASON && team && !tradeMode && (
           <div>
-            <RosterPanel roster={team.roster} title="Roster" />
+            <RosterPanel roster={team.roster} injuries={team.injuries || {}} title="Roster" />
 
             {weekNum <= 17 && (
               <div style={{ marginBottom: 16 }}>
@@ -1132,9 +1397,10 @@ export default function App() {
         {phase === PHASES.POSTSEASON_ROUND && (
           <div style={{ textAlign: "center" }}>
             <div style={{
-              fontFamily: "'Orbitron', monospace", fontSize: 18, fontWeight: 700, marginBottom: 24,
-              color: poRound === 3 ? "#f59e0b" : "#e2e8f0", letterSpacing: 2
-            }}>{PO_ROUNDS[poRound].toUpperCase()}</div>
+              fontFamily: "'Orbitron', monospace", fontSize: 11, color: "#64748b",
+              marginBottom: 16, letterSpacing: 3
+            }}>PLAYOFF BRACKET</div>
+            <PlayoffBracket results={playoffResults} currentRound={poRound} />
             {logs.length > 0 && <LogPanel messages={logs} logRef={logRef} />}
             <div style={{ marginTop: 20 }}>
               <Btn onClick={simPlayoffRound} variant={poRound === 3 ? "primary" : "secondary"}>
@@ -1147,6 +1413,7 @@ export default function App() {
         {/* ── SEASON END ── */}
         {phase === PHASES.SEASON_END && team && (
           <div style={{ textAlign: "center" }}>
+            {team.history[team.history.length - 1]?.result === "Won the Super Bowl!" && <Confetti />}
             <div style={{
               fontFamily: "'Orbitron', monospace", fontSize: 14, color: "#64748b",
               marginBottom: 8, letterSpacing: 3
@@ -1205,7 +1472,7 @@ export default function App() {
               fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#475569", marginBottom: 20
             }}>{team.yr} Offseason &nbsp;|&nbsp; Cap: ${calcSalarySpent(team.roster)}M / $110M</div>
 
-            <RosterPanel roster={team.roster} title="Current Roster" />
+            <RosterPanel roster={team.roster} injuries={team.injuries || {}} title="Current Roster" />
 
             {resignList.length > 0 ? (
               <div style={{ marginTop: 20 }}>
@@ -1254,7 +1521,7 @@ export default function App() {
               fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#475569", marginBottom: 20
             }}>Scouts only give a range, not a number. True OVR is revealed once you pick. Draft picks can exceed the salary cap.</div>
 
-            <RosterPanel roster={team.roster} title="Your Team" />
+            <RosterPanel roster={team.roster} injuries={team.injuries || {}} title="Your Team" />
 
             <div style={{
               fontFamily: "'Orbitron', monospace", fontSize: 11, color: "#64748b",
@@ -1288,7 +1555,7 @@ export default function App() {
               fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#475569", marginBottom: 20
             }}>Sign as many as you can afford &nbsp;|&nbsp; Cap: ${calcSalarySpent(team.roster)}M / $110M</div>
 
-            <RosterPanel roster={team.roster} title="Your Team" />
+            <RosterPanel roster={team.roster} injuries={team.injuries || {}} title="Your Team" />
 
             <div style={{
               fontFamily: "'Orbitron', monospace", fontSize: 11, color: "#64748b",
