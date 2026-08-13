@@ -276,14 +276,21 @@ function generateTradeOffers(currentPlayer, mult, candidateTeams) {
   while (offers.length < 3 && attempts < 50) {
     attempts++;
     let p = createPlayer();
-    const delta = -15 + randInt(31);
+    // Most offers are lateral or a downgrade — AI teams don't just hand over
+    // their best players. A real upgrade is rare and always costs a pick.
+    const roll = Math.random();
+    let delta, requiresPick;
+    if (roll < 0.65) { delta = -15 + randInt(16); requiresPick = false; }       // -15..0
+    else if (roll < 0.92) { delta = randInt(7); requiresPick = false; }         // 0..+6
+    else { delta = 7 + randInt(8); requiresPick = true; }                       // +7..+14, costs a pick
     p.ovr = Math.max(40, Math.min(99, currentPlayer.ovr + delta));
     p.devTrait = checkTrait(p.age);
     p = newContract(p, mult);
+    if (requiresPick) p.salary = Math.ceil(p.salary * 1.15);
     const fromTeam = pick(candidateTeams).trim();
     if (usedTeams.has(fromTeam) && usedTeams.size < candidateTeams.length) continue;
     usedTeams.add(fromTeam);
-    offers.push({ player: p, fromTeam });
+    offers.push({ player: p, fromTeam, requiresPick });
   }
   return offers;
 }
@@ -329,7 +336,7 @@ function initTeam(chosenName) {
     roster[pos] = p;
   });
 
-  return { name, roster, opponents, yr: 2024, history: [], sessionWins: 0, sessionLosses: 0, POappear: 0, SBappear: 0, SBwins: 0, badSeasonStreak: 0, fired: false, tradesUsedThisSeason: 0, awardsWon: [], injuries: {} };
+  return { name, roster, opponents, yr: 2024, history: [], sessionWins: 0, sessionLosses: 0, POappear: 0, SBappear: 0, SBwins: 0, badSeasonStreak: 0, fired: false, tradesUsedThisSeason: 0, awardsWon: [], injuries: {}, futurePickDebt: 0 };
 }
 
 // ─── PLAYER AVATARS ─────────────────────────────────────────────────────────
@@ -999,16 +1006,25 @@ export default function App() {
       backup = newContract(backup, POS_MULTIPLIERS[pos]);
       updates[pos] = backup;
     });
-    if (Object.keys(updates).length > 0) {
-      setTeam(prev => ({ ...prev, roster: { ...prev.roster, ...updates } }));
-    }
+
+    const basePicks = draftPickCount(draftPO);
+    const debt = team.futurePickDebt || 0;
+    const owed = Math.min(basePicks - 1, debt);
+    const picks = basePicks - owed;
+    setLogs(owed > 0
+      ? [{ text: `Traded away ${owed} draft pick${owed > 1 ? "s" : ""} from earlier deals — down to ${picks} pick${picks > 1 ? "s" : ""} this draft.`, type: "error" }]
+      : []);
+
+    setTeam(prev => ({
+      ...prev,
+      roster: { ...prev.roster, ...updates },
+      futurePickDebt: (prev.futurePickDebt || 0) - owed,
+    }));
     setResignList([]);
-    const picks = draftPickCount(draftPO);
     setDraftPicksTotal(picks);
     setDraftPicksRemaining(picks);
     setDraftedPositions([]);
     setDraftClass(generateDraftClass(wins, draftPO, []));
-    setLogs([]);
     setPhase(PHASES.DRAFT);
   };
 
@@ -1063,6 +1079,10 @@ export default function App() {
   const closeTrade = () => { setTradeMode(false); setTradePos(null); setTradeOffers([]); };
 
   const shopPosition = (pos) => {
+    if (team.tradesUsedThisSeason >= MAX_TRADES_PER_SEASON) return;
+    // Looking at the market costs a trade opportunity whether or not you deal —
+    // otherwise you can back out and re-shop the same spot for a free reroll.
+    setTeam(prev => ({ ...prev, tradesUsedThisSeason: prev.tradesUsedThisSeason + 1 }));
     setTradePos(pos);
     setTradeOffers(generateTradeOffers(team.roster[pos], POS_MULTIPLIERS[pos], team.opponents));
   };
@@ -1074,11 +1094,12 @@ export default function App() {
       addLog(`Trade rejected — taking on ${offer.player.name} would put you at $${newSpent}M/$110M`, "error");
       return;
     }
-    addLog(`Traded ${current.name} (${current.ovr} ovr) to the ${offer.fromTeam} for ${offer.player.name} (${offer.player.ovr} ovr, $${offer.player.salary}M)`, "success");
+    const pickNote = offer.requiresPick ? " + a future draft pick" : "";
+    addLog(`Traded ${current.name} (${current.ovr} ovr)${pickNote} to the ${offer.fromTeam} for ${offer.player.name} (${offer.player.ovr} ovr, $${offer.player.salary}M)`, "success");
     setTeam(prev => ({
       ...prev,
       roster: { ...prev.roster, [tradePos]: offer.player },
-      tradesUsedThisSeason: prev.tradesUsedThisSeason + 1
+      futurePickDebt: (prev.futurePickDebt || 0) + (offer.requiresPick ? 1 : 0),
     }));
     closeTrade();
   };
@@ -1188,7 +1209,7 @@ export default function App() {
                 <p style={{ marginBottom: 12 }}>Pick your franchise from three divisions, then manage 3 offensive positions (QB, RB, WR) and 3 defensive (EDGE, LB, CB). Each player has an OVR rating that drives game simulation.</p>
                 <p style={{ marginBottom: 12 }}>Position importance: QB &gt; EDGE &gt; CB &gt; WR/LB &gt; RB. Younger players develop and improve; players in their mid-30s tend to decline.</p>
                 <p style={{ marginBottom: 12 }}>Salary cap is $110M. Every offseason you re-sign expiring contracts, make 1&ndash;3 draft picks (bad seasons earn more), then hit free agency. Draft prospects only show a scouted range &mdash; their true OVR is revealed once you pick.</p>
-                <p style={{ marginBottom: 12 }}>During the season you can make up to 3 trades &mdash; shop a position for a replacement if an early loss exposes a weakness. Watch for injuries too: a banged-up starter plays at reduced strength until they heal.</p>
+                <p style={{ marginBottom: 12 }}>During the season you get 3 looks at the trade market &mdash; checking offers for a position uses one, whether or not you deal, so choose carefully. Most offers are lateral; a real upgrade will cost you a future draft pick. Watch for injuries too: a banged-up starter plays at reduced strength until they heal.</p>
                 <p style={{ marginBottom: 12 }}>Finish with 9+ wins to make the playoffs (13+ gets a first-round bye). Miss the playoffs three seasons in a row and ownership fires you.</p>
                 <p style={{ marginBottom: 12 }}>Standout seasons earn awards &mdash; MVP, Offensive/Defensive Player of the Year, Rookie of the Year, Comeback Player &mdash; and every franchise you complete is recorded in the Hall of Fame.</p>
                 <p>Your progress saves automatically, so you can close the tab and pick up right where you left off.</p>
@@ -1347,7 +1368,7 @@ export default function App() {
                 <div style={{
                   fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#475569", marginBottom: 20
                 }}>
-                  Pick a position to shop &nbsp;|&nbsp; {MAX_TRADES_PER_SEASON - team.tradesUsedThisSeason} trade{MAX_TRADES_PER_SEASON - team.tradesUsedThisSeason !== 1 ? "s" : ""} left this season
+                  Pick a position to shop &nbsp;|&nbsp; {MAX_TRADES_PER_SEASON - team.tradesUsedThisSeason} look{MAX_TRADES_PER_SEASON - team.tradesUsedThisSeason !== 1 ? "s" : ""} left this season — checking the market uses one, even if you don't deal
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   {POSITIONS.map(pos => (
@@ -1368,8 +1389,11 @@ export default function App() {
                     <div key={i}>
                       <div style={{
                         fontFamily: "'Space Mono', monospace", fontSize: 10, color: "#64748b",
-                        marginBottom: 4, letterSpacing: 1
-                      }}>FROM {offer.fromTeam.toUpperCase()}</div>
+                        marginBottom: 4, letterSpacing: 1, display: "flex", justifyContent: "space-between"
+                      }}>
+                        <span>FROM {offer.fromTeam.toUpperCase()}</span>
+                        {offer.requiresPick && <span style={{ color: "#f59e0b" }}>+ COSTS A FUTURE PICK</span>}
+                      </div>
                       <PlayerCard pos={tradePos} player={offer.player}
                         onClick={() => acceptTrade(offer)} actionLabel="ACCEPT" />
                     </div>
