@@ -51,12 +51,27 @@ function checkTrait(age) {
   return 4;
 }
 
+// A hidden growth ceiling, separate from current OVR. Most players have a
+// modest ceiling a few points above their current rating; a rare
+// "generational" roll grants real upside regardless of how they look today —
+// this is what keeps the draft worth running even once a team is stacked.
+function computePotential(ovr, age) {
+  const ageFactor = Math.max(0, 33 - age) / 12;
+  let spread = Math.round(4 + ageFactor * 10);
+
+  const roll = Math.random();
+  if (roll < 0.06) spread += 18 + randInt(13);
+  else if (roll < 0.20) spread += 6 + randInt(8);
+
+  return Math.min(99, ovr + spread);
+}
+
 function createPlayer() {
   let ovr = 59;
   if (Math.random() < 0.5) ovr += randInt(10);
   else ovr -= randInt(6);
   const age = 21 + randInt(16);
-  return { name: makeName(), ovr, age, devTrait: checkTrait(age), salary: 0, ovrC: 0 };
+  return { name: makeName(), ovr, age, devTrait: checkTrait(age), salary: 0, ovrC: 0, potential: computePotential(ovr, age) };
 }
 
 function newContract(p, mult) {
@@ -85,13 +100,29 @@ function developPlayer(p) {
   p.age += 1;
   p.devTrait = checkTrait(p.age);
 
-  if (p.devTrait === 0) { ovr++; if (Math.random() < 0.5) ovr++; if (Math.random() < 0.25) ovr++; }
-  else if (p.devTrait === 1) { ovr++; if (Math.random() < 0.25) ovr++; }
-  else if (p.devTrait === 2) { if (Math.random() < 0.25) ovr--; else if (Math.random() < 0.5) ovr++; }
+  // Growth pulls toward the player's hidden potential ceiling rather than
+  // climbing blindly — a high-potential rookie keeps growing well past where
+  // a capped-out player would plateau.
+  const potential = p.potential != null ? p.potential : ovr;
+  const gap = potential - ovr;
+
+  if (p.devTrait === 0) {
+    let gain = gap > 12 ? 2 + randInt(3) : gap > 0 ? 1 + randInt(2) : (Math.random() < 0.3 ? 1 : 0);
+    ovr += gain;
+  }
+  else if (p.devTrait === 1) {
+    let gain = gap > 10 ? 1 + randInt(2) : gap > 0 && Math.random() < 0.6 ? 1 : 0;
+    ovr += gain;
+  }
+  else if (p.devTrait === 2) {
+    if (gap > 8 && Math.random() < 0.35) ovr++;
+    else if (Math.random() < 0.25) ovr--;
+  }
   else if (p.devTrait === 3) { if (Math.random() < 0.5) ovr--; ovr--; }
   else { if (Math.random() < 0.5) ovr--; if (Math.random() < 0.5) ovr--; ovr -= 3; }
 
   if (ovr > 99) ovr = 99;
+  if (ovr > potential) ovr = potential;
   p.ovr = ovr;
   p.ovrC = ovrC;
   return p;
@@ -167,6 +198,12 @@ function calcOvr(roster) {
 function calcSalarySpent(roster) {
   return POSITIONS.reduce((s, pos) => s + roster[pos].salary, 0);
 }
+function calcBenchSpent(bench) {
+  return POSITIONS.reduce((s, pos) => s + (bench && bench[pos] ? bench[pos].salary : 0), 0);
+}
+function calcTotalSpent(roster, bench) {
+  return calcSalarySpent(roster) + calcBenchSpent(bench);
+}
 
 function applyInjuries(roster, injuries) {
   const out = {};
@@ -227,13 +264,24 @@ const SCOUT_TAGS = {
   wild: { label: "Wildcard", color: "#a78bfa" },
 };
 
-function scoutReport(ovr) {
+function scoutReport(ovr, potential) {
+  // The archetype tag leans toward the player's real hidden potential gap —
+  // scouts have real information, but there's still noise so it's not a
+  // perfect read.
+  const pot = potential != null ? potential : ovr;
+  const gap = pot - ovr;
+
   const roll = Math.random();
-  let archetype, spread;
-  if (roll < 0.2) { archetype = "boom"; spread = 8 + randInt(8); }
-  else if (roll < 0.4) { archetype = "bust"; spread = 8 + randInt(8); }
-  else if (roll < 0.7) { archetype = "safe"; spread = 2 + randInt(3); }
-  else { archetype = "wild"; spread = 12 + randInt(10); }
+  let archetype;
+  if (gap >= 14) archetype = roll < 0.6 ? "boom" : roll < 0.85 ? "wild" : "safe";
+  else if (gap <= 4) archetype = roll < 0.55 ? "safe" : roll < 0.8 ? "bust" : "wild";
+  else archetype = roll < 0.25 ? "boom" : roll < 0.5 ? "bust" : roll < 0.8 ? "safe" : "wild";
+
+  let spread;
+  if (archetype === "boom") spread = 8 + randInt(8);
+  else if (archetype === "bust") spread = 8 + randInt(8);
+  else if (archetype === "safe") spread = 2 + randInt(3);
+  else spread = 12 + randInt(10);
 
   const bias = -3 + randInt(7);
   const center = ovr + bias;
@@ -262,8 +310,9 @@ function generateDraftClass(wins, draftPO, excludePositions = []) {
     p.ovr = base + randInt(Math.max(1, Math.floor(draftStock)));
     if (p.ovr > 99) p.ovr = 99;
     p.devTrait = checkTrait(p.age);
+    p.potential = computePotential(p.ovr, p.age);
     p = newContract(p, POS_MULTIPLIERS[pos]);
-    p.scouting = scoutReport(p.ovr);
+    p.scouting = scoutReport(p.ovr, p.potential);
     players[pos] = p;
   });
   return players;
@@ -285,6 +334,7 @@ function generateTradeOffers(currentPlayer, mult, candidateTeams) {
     else { delta = 7 + randInt(8); requiresPick = true; }                       // +7..+14, costs a pick
     p.ovr = Math.max(40, Math.min(99, currentPlayer.ovr + delta));
     p.devTrait = checkTrait(p.age);
+    p.potential = computePotential(p.ovr, p.age);
     p = newContract(p, mult);
     if (requiresPick) p.salary = Math.ceil(p.salary * 1.15);
     const fromTeam = pick(candidateTeams).trim();
@@ -311,6 +361,7 @@ function generateFAClass() {
     }
     if (p.ovr > 99) p.ovr = 99;
     if (p.age < 25) { p.age = 25; p.devTrait = checkTrait(p.age); }
+    p.potential = computePotential(p.ovr, p.age);
     p = newContract(p, POS_MULTIPLIERS[pos]);
     players[pos] = p;
   });
@@ -336,7 +387,10 @@ function initTeam(chosenName) {
     roster[pos] = p;
   });
 
-  return { name, roster, opponents, yr: 2024, history: [], sessionWins: 0, sessionLosses: 0, POappear: 0, SBappear: 0, SBwins: 0, badSeasonStreak: 0, fired: false, tradesUsedThisSeason: 0, awardsWon: [], injuries: {}, futurePickDebt: 0 };
+  const bench = {};
+  POSITIONS.forEach(pos => { bench[pos] = null; });
+
+  return { name, roster, bench, opponents, yr: 2024, history: [], sessionWins: 0, sessionLosses: 0, POappear: 0, SBappear: 0, SBwins: 0, badSeasonStreak: 0, fired: false, tradesUsedThisSeason: 0, awardsWon: [], injuries: {}, futurePickDebt: 0 };
 }
 
 // ─── PLAYER AVATARS ─────────────────────────────────────────────────────────
@@ -537,11 +591,11 @@ function PlayerCard({ pos, player, highlight, onClick, compact, actionLabel, sco
   );
 }
 
-function RosterPanel({ roster, title, injuries = {} }) {
+function RosterPanel({ roster, title, injuries = {}, bench }) {
   const offOvr = Math.floor(calcOffOvr(roster));
   const defOvr = Math.floor(calcDefOvr(roster));
   const ovr = calcOvr(roster);
-  const spent = calcSalarySpent(roster);
+  const spent = bench ? calcTotalSpent(roster, bench) : calcSalarySpent(roster);
   return (
     <div style={{ marginBottom: 16 }}>
       {title && (
@@ -562,6 +616,49 @@ function RosterPanel({ roster, title, injuries = {} }) {
         <span>OFF <b style={{ color: "#60a5fa", fontSize: 14 }}>{offOvr}</b></span>
         <span>DEF <b style={{ color: "#f472b6", fontSize: 14 }}>{defOvr}</b></span>
         <span>CAP <b style={{ color: spent > 110 ? "#ef4444" : "#94a3b8", fontSize: 14 }}>${spent}M / $110M</b></span>
+      </div>
+    </div>
+  );
+}
+
+function BenchPanel({ bench, onPromote, onRelease }) {
+  const spent = calcBenchSpent(bench);
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{
+        fontFamily: "'Orbitron', monospace", fontSize: 11, color: "#64748b",
+        marginBottom: 10, letterSpacing: 3, textTransform: "uppercase"
+      }}>Bench{spent > 0 ? ` · $${spent}M` : ""}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {POSITIONS.map(pos => {
+          const p = bench && bench[pos];
+          if (!p) {
+            return (
+              <div key={pos} style={{
+                display: "flex", alignItems: "center", gap: 12, padding: "10px 16px",
+                borderRadius: 8, border: "1px dashed rgba(255,255,255,0.08)",
+                fontFamily: "'Space Mono', monospace", fontSize: 12, color: "#475569"
+              }}>
+                <div style={{
+                  fontFamily: "'Orbitron', monospace", fontWeight: 900, fontSize: 11,
+                  color: "#334155", minWidth: 40, letterSpacing: 1
+                }}>{pos}</div>
+                Empty bench slot
+              </div>
+            );
+          }
+          return (
+            <div key={pos} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ flex: 1 }}>
+                <PlayerCard pos={pos} player={p} compact />
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {onPromote && <Btn onClick={() => onPromote(pos)} variant="success" small>Promote</Btn>}
+                {onRelease && <Btn onClick={() => onRelease(pos)} variant="danger" small>Release</Btn>}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -845,7 +942,9 @@ export default function App() {
   const continueGame = () => {
     const s = loadGame();
     if (!s || !s.team) return;
-    setTeam(s.team);
+    const bench = s.team.bench || {};
+    POSITIONS.forEach(pos => { if (bench[pos] === undefined) bench[pos] = null; });
+    setTeam({ ...s.team, bench });
     setGames(s.games || []);
     setWins(s.wins || 0);
     setWeekNum(s.weekNum || 1);
@@ -854,7 +953,8 @@ export default function App() {
     setDraftPO(s.draftPO || 0);
     setDraftClass(s.draftClass || null);
     setFaClass(s.faClass || null);
-    setResignList(s.resignList || []);
+    // Legacy saves stored resignList as plain position strings for starters only.
+    setResignList((s.resignList || []).map(r => typeof r === "string" ? { pos: r, slot: "start" } : r));
     setDraftPicksTotal(s.draftPicksTotal || 0);
     setDraftPicksRemaining(s.draftPicksRemaining || 0);
     setDraftedPositions(s.draftedPositions || []);
@@ -1027,37 +1127,62 @@ export default function App() {
     const newRoster = {};
     POSITIONS.forEach(pos => { newRoster[pos] = developPlayer(team.roster[pos]); });
 
-    const needsResignArr = POSITIONS.filter(pos => needsResign(newRoster[pos].age));
-    needsResignArr.forEach(pos => {
-      newRoster[pos] = newContract(newRoster[pos], POS_MULTIPLIERS[pos]);
+    const newBench = {};
+    POSITIONS.forEach(pos => {
+      const b = (team.bench || {})[pos];
+      newBench[pos] = b ? developPlayer(b) : null;
     });
 
-    setTeam(prev => ({ ...prev, roster: { ...newRoster }, yr: prev.yr + 1 }));
+    const needsResignArr = [];
+    POSITIONS.forEach(pos => {
+      if (needsResign(newRoster[pos].age)) {
+        newRoster[pos] = newContract(newRoster[pos], POS_MULTIPLIERS[pos]);
+        needsResignArr.push({ pos, slot: "start" });
+      }
+      if (newBench[pos] && needsResign(newBench[pos].age)) {
+        newBench[pos] = newContract(newBench[pos], POS_MULTIPLIERS[pos]);
+        needsResignArr.push({ pos, slot: "bench" });
+      }
+    });
+
+    setTeam(prev => ({ ...prev, roster: { ...newRoster }, bench: { ...newBench }, yr: prev.yr + 1 }));
     setResignList(needsResignArr);
     setLogs([]);
     setPhase(PHASES.RESIGN);
   };
 
-  const handleResign = (pos) => {
-    addLog(`Re-signed ${pos}: ${team.roster[pos].name} for $${team.roster[pos].salary}M`, "success");
-    setResignList(prev => prev.filter(p => p !== pos));
+  const handleResign = (item) => {
+    const player = item.slot === "bench" ? team.bench[item.pos] : team.roster[item.pos];
+    addLog(`Re-signed ${item.pos}${item.slot === "bench" ? " (bench)" : ""}: ${player.name} for $${player.salary}M`, "success");
+    setResignList(prev => prev.filter(r => !(r.pos === item.pos && r.slot === item.slot)));
   };
 
-  const skipResign = (pos) => {
-    const oldName = team.roster[pos].name;
-    let backup = createPlayer();
-    backup = newContract(backup, POS_MULTIPLIERS[pos]);
-    setTeam(prev => ({ ...prev, roster: { ...prev.roster, [pos]: backup } }));
-    addLog(`Let ${oldName} walk. Replacement: ${backup.name} (${backup.ovr} ovr)`, "highlight");
-    setResignList(prev => prev.filter(p => p !== pos));
+  const skipResign = (item) => {
+    if (item.slot === "bench") {
+      const oldName = team.bench[item.pos].name;
+      setTeam(prev => ({ ...prev, bench: { ...(prev.bench || {}), [item.pos]: null } }));
+      addLog(`Let ${oldName} walk from the bench.`, "highlight");
+    } else {
+      const oldName = team.roster[item.pos].name;
+      let backup = createPlayer();
+      backup = newContract(backup, POS_MULTIPLIERS[item.pos]);
+      setTeam(prev => ({ ...prev, roster: { ...prev.roster, [item.pos]: backup } }));
+      addLog(`Let ${oldName} walk. Replacement: ${backup.name} (${backup.ovr} ovr)`, "highlight");
+    }
+    setResignList(prev => prev.filter(r => !(r.pos === item.pos && r.slot === item.slot)));
   };
 
   const finishResign = () => {
-    const updates = {};
-    resignList.forEach(pos => {
-      let backup = createPlayer();
-      backup = newContract(backup, POS_MULTIPLIERS[pos]);
-      updates[pos] = backup;
+    const rosterUpdates = {};
+    const benchUpdates = {};
+    resignList.forEach(item => {
+      if (item.slot === "bench") {
+        benchUpdates[item.pos] = null;
+      } else {
+        let backup = createPlayer();
+        backup = newContract(backup, POS_MULTIPLIERS[item.pos]);
+        rosterUpdates[item.pos] = backup;
+      }
     });
 
     const basePicks = draftPickCount(draftPO);
@@ -1070,7 +1195,8 @@ export default function App() {
 
     setTeam(prev => ({
       ...prev,
-      roster: { ...prev.roster, ...updates },
+      roster: { ...prev.roster, ...rosterUpdates },
+      bench: { ...(prev.bench || {}), ...benchUpdates },
       futurePickDebt: (prev.futurePickDebt || 0) - owed,
     }));
     setResignList([]);
@@ -1081,10 +1207,15 @@ export default function App() {
     setPhase(PHASES.DRAFT);
   };
 
-  const draftPlayer = (pos) => {
+  const draftPlayer = (pos, toBench = false) => {
     const player = draftClass[pos];
-    addLog(`Drafted ${pos}: ${player.name} (${player.ovr} ovr, $${player.salary}M)`, "success");
-    setTeam(prev => ({ ...prev, roster: { ...prev.roster, [pos]: player } }));
+    if (toBench) {
+      addLog(`Drafted ${pos}: ${player.name} (${player.ovr} ovr, $${player.salary}M) → bench`, "success");
+      setTeam(prev => ({ ...prev, bench: { ...(prev.bench || {}), [pos]: player } }));
+    } else {
+      addLog(`Drafted ${pos}: ${player.name} (${player.ovr} ovr, $${player.salary}M)`, "success");
+      setTeam(prev => ({ ...prev, roster: { ...prev.roster, [pos]: player } }));
+    }
 
     const newDrafted = [...draftedPositions, pos];
     const remaining = draftPicksRemaining - 1;
@@ -1106,16 +1237,22 @@ export default function App() {
     setPhase(PHASES.FREE_AGENCY);
   };
 
-  const signFA = (pos) => {
+  const signFA = (pos, toBench = false) => {
     const fa = faClass[pos];
-    const current = team.roster[pos];
-    const newSpent = calcSalarySpent(team.roster) - current.salary + fa.salary;
+    const current = toBench ? (team.bench && team.bench[pos]) : team.roster[pos];
+    const currentSalary = current ? current.salary : 0;
+    const newSpent = calcTotalSpent(team.roster, team.bench) - currentSalary + fa.salary;
     if (newSpent > 110) {
       addLog(`Can't afford ${fa.name} — would put you at $${newSpent}M/$110M`, "error");
       return;
     }
-    addLog(`Signed ${pos}: ${fa.name} (${fa.ovr} ovr, $${fa.salary}M)`, "success");
-    setTeam(prev => ({ ...prev, roster: { ...prev.roster, [pos]: fa } }));
+    if (toBench) {
+      addLog(`Signed ${pos}: ${fa.name} (${fa.ovr} ovr, $${fa.salary}M) → bench`, "success");
+      setTeam(prev => ({ ...prev, bench: { ...(prev.bench || {}), [pos]: fa } }));
+    } else {
+      addLog(`Signed ${pos}: ${fa.name} (${fa.ovr} ovr, $${fa.salary}M)`, "success");
+      setTeam(prev => ({ ...prev, roster: { ...prev.roster, [pos]: fa } }));
+    }
   };
 
   const finishFA = () => {
@@ -1126,6 +1263,25 @@ export default function App() {
     setLogs([]);
     setTeam(prev => ({ ...prev, tradesUsedThisSeason: 0, injuries: {} }));
     setPhase(PHASES.REGULAR_SEASON);
+  };
+
+  const promoteBench = (pos) => {
+    const benchPlayer = team.bench && team.bench[pos];
+    if (!benchPlayer) return;
+    const starter = team.roster[pos];
+    addLog(`Promoted ${benchPlayer.name} (${benchPlayer.ovr} ovr) to starting ${pos} — ${starter.name} moved to bench.`, "success");
+    setTeam(prev => ({
+      ...prev,
+      roster: { ...prev.roster, [pos]: benchPlayer },
+      bench: { ...(prev.bench || {}), [pos]: starter },
+    }));
+  };
+
+  const releaseBench = (pos) => {
+    const benchPlayer = team.bench && team.bench[pos];
+    if (!benchPlayer) return;
+    addLog(`Released ${benchPlayer.name} (${pos}) from the bench.`, "highlight");
+    setTeam(prev => ({ ...prev, bench: { ...(prev.bench || {}), [pos]: null } }));
   };
 
   const openTrade = () => { setTradeMode(true); setTradePos(null); setTradeOffers([]); };
@@ -1142,7 +1298,7 @@ export default function App() {
 
   const acceptTrade = (offer) => {
     const current = team.roster[tradePos];
-    const newSpent = calcSalarySpent(team.roster) - current.salary + offer.player.salary;
+    const newSpent = calcTotalSpent(team.roster, team.bench) - current.salary + offer.player.salary;
     if (newSpent > 110) {
       addLog(`Trade rejected — taking on ${offer.player.name} would put you at $${newSpent}M/$110M`, "error");
       return;
@@ -1266,7 +1422,8 @@ export default function App() {
               }}>
                 <p style={{ marginBottom: 12 }}>Pick your franchise from three divisions, then manage 3 offensive positions (QB, RB, WR) and 3 defensive (EDGE, LB, CB). Each player has an OVR rating that drives game simulation.</p>
                 <p style={{ marginBottom: 12 }}>Position importance: QB &gt; EDGE &gt; CB &gt; WR/LB &gt; RB. Younger players develop and improve; players in their mid-30s tend to decline.</p>
-                <p style={{ marginBottom: 12 }}>Salary cap is $110M. Every offseason you re-sign expiring contracts, make 1&ndash;3 draft picks (bad seasons earn more), then hit free agency. Draft prospects only show a scouted range &mdash; their true OVR is revealed once you pick.</p>
+                <p style={{ marginBottom: 12 }}>Salary cap is $110M. Every offseason you re-sign expiring contracts, make 1&ndash;3 draft picks (bad seasons earn more), then hit free agency. Draft prospects only show a scouted range &mdash; their true OVR is revealed once you pick. Every player also has a hidden growth ceiling, so a scouting tag hinting at real upside is worth chasing even late in a career.</p>
+                <p style={{ marginBottom: 12 }}>Each position has one bench slot. Draft or sign a prospect to the bench instead of starting them to develop them without losing your current starter, then Promote them into the lineup (or Release them) whenever you're ready from the roster screen. Bench salaries still count against the cap.</p>
                 <p style={{ marginBottom: 12 }}>During the season you get 3 looks at the trade market &mdash; checking offers for a position uses one, whether or not you deal, so choose carefully. Most offers are lateral; a real upgrade will cost you a future draft pick. Watch for injuries too: a banged-up starter plays at reduced strength until they heal.</p>
                 <p style={{ marginBottom: 12 }}>Finish with 9+ wins to make the playoffs (13+ gets a first-round bye). Miss the playoffs three seasons in a row and ownership fires you.</p>
                 <p style={{ marginBottom: 12 }}>Standout seasons earn awards &mdash; MVP, Offensive/Defensive Player of the Year, Rookie of the Year, Comeback Player &mdash; and every franchise you complete is recorded in the Hall of Fame.</p>
@@ -1409,7 +1566,9 @@ export default function App() {
             <div style={{ fontSize: 16, color: "#94a3b8", marginBottom: 20, textAlign: "center", lineHeight: 1.8 }}>
               You are the new GM of the <b style={{ color: "#f59e0b" }}>{team.name}</b>.
             </div>
-            <RosterPanel roster={team.roster} injuries={team.injuries || {}} title="Your Roster" />
+            <RosterPanel roster={team.roster} injuries={team.injuries || {}} bench={team.bench} title="Your Roster" />
+            <BenchPanel bench={team.bench || {}} onPromote={promoteBench} onRelease={releaseBench} />
+            {logs.length > 0 && <div style={{ marginBottom: 16 }}><LogPanel messages={logs} logRef={logRef} /></div>}
             <div style={{ textAlign: "center", marginTop: 24 }}>
               <Btn onClick={() => { setOpponentPool([...team.opponents]); setPhase(PHASES.REGULAR_SEASON); }}>
                 Start Season
@@ -1481,7 +1640,8 @@ export default function App() {
 
         {phase === PHASES.REGULAR_SEASON && team && !tradeMode && (
           <div>
-            <RosterPanel roster={team.roster} injuries={team.injuries || {}} title="Roster" />
+            <RosterPanel roster={team.roster} injuries={team.injuries || {}} bench={team.bench} title="Roster" />
+            <BenchPanel bench={team.bench || {}} onPromote={promoteBench} onRelease={releaseBench} />
 
             {weekNum <= 17 && (
               <div style={{ marginBottom: 16 }}>
@@ -1634,9 +1794,10 @@ export default function App() {
             }}>RE-SIGNING</div>
             <div style={{
               fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#475569", marginBottom: 20
-            }}>{team.yr} Offseason &nbsp;|&nbsp; Cap: ${calcSalarySpent(team.roster)}M / $110M</div>
+            }}>{team.yr} Offseason &nbsp;|&nbsp; Cap: ${calcTotalSpent(team.roster, team.bench)}M / $110M</div>
 
-            <RosterPanel roster={team.roster} injuries={team.injuries || {}} title="Current Roster" />
+            <RosterPanel roster={team.roster} injuries={team.injuries || {}} bench={team.bench} title="Current Roster" />
+            <BenchPanel bench={team.bench || {}} />
 
             {resignList.length > 0 ? (
               <div style={{ marginTop: 20 }}>
@@ -1644,18 +1805,24 @@ export default function App() {
                   fontFamily: "'Rajdhani', sans-serif", fontSize: 14, color: "#fb923c",
                   marginBottom: 12, fontWeight: 600
                 }}>Expired contracts:</div>
-                {resignList.map(pos => (
-                  <div key={pos} style={{
+                {resignList.map(item => (
+                  <div key={`${item.pos}-${item.slot}`} style={{
                     display: "flex", alignItems: "center", gap: 8, marginBottom: 6,
                     background: "rgba(251,146,60,0.04)", borderRadius: 8, padding: 8,
                     border: "1px solid rgba(251,146,60,0.12)"
                   }}>
                     <div style={{ flex: 1 }}>
-                      <PlayerCard pos={pos} player={team.roster[pos]} compact />
+                      <PlayerCard pos={item.pos} player={item.slot === "bench" ? team.bench[item.pos] : team.roster[item.pos]} compact />
                     </div>
+                    {item.slot === "bench" && (
+                      <div style={{
+                        fontFamily: "'Space Mono', monospace", fontSize: 10, fontWeight: 700,
+                        color: "#64748b", letterSpacing: 1
+                      }}>BENCH</div>
+                    )}
                     <div style={{ display: "flex", gap: 6 }}>
-                      <Btn onClick={() => handleResign(pos)} variant="success" small>Keep</Btn>
-                      <Btn onClick={() => skipResign(pos)} variant="danger" small>Cut</Btn>
+                      <Btn onClick={() => handleResign(item)} variant="success" small>Keep</Btn>
+                      <Btn onClick={() => skipResign(item)} variant="danger" small>Cut</Btn>
                     </div>
                   </div>
                 ))}
@@ -1683,9 +1850,10 @@ export default function App() {
             }}>{team.yr} DRAFT &nbsp;&middot;&nbsp; PICK {draftPicksTotal - draftPicksRemaining + 1} OF {draftPicksTotal}</div>
             <div style={{
               fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#475569", marginBottom: 20
-            }}>Scouts only give a range, not a number. True OVR is revealed once you pick. Draft picks can exceed the salary cap.</div>
+            }}>Scouts only give a range, not a number. True OVR is revealed once you pick. Draft picks can exceed the salary cap. Bench a pick to develop them without losing your starter.</div>
 
-            <RosterPanel roster={team.roster} injuries={team.injuries || {}} title="Your Team" />
+            <RosterPanel roster={team.roster} injuries={team.injuries || {}} bench={team.bench} title="Your Team" />
+            <BenchPanel bench={team.bench || {}} />
 
             <div style={{
               fontFamily: "'Orbitron', monospace", fontSize: 11, color: "#64748b",
@@ -1693,8 +1861,15 @@ export default function App() {
             }}>DRAFT CLASS</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {POSITIONS.filter(pos => draftClass[pos]).map(pos => (
-                <PlayerCard key={pos} pos={pos} player={draftClass[pos]} scouting={draftClass[pos].scouting}
-                  onClick={() => draftPlayer(pos)} actionLabel="DRAFT" />
+                <div key={pos} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <PlayerCard pos={pos} player={draftClass[pos]} scouting={draftClass[pos].scouting} />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <Btn onClick={() => draftPlayer(pos, false)} small>Start</Btn>
+                    <Btn onClick={() => draftPlayer(pos, true)} variant="secondary" small>Bench</Btn>
+                  </div>
+                </div>
               ))}
             </div>
 
@@ -1717,9 +1892,10 @@ export default function App() {
             }}>FREE AGENCY</div>
             <div style={{
               fontFamily: "'Space Mono', monospace", fontSize: 11, color: "#475569", marginBottom: 20
-            }}>Sign as many as you can afford &nbsp;|&nbsp; Cap: ${calcSalarySpent(team.roster)}M / $110M</div>
+            }}>Sign as many as you can afford &nbsp;|&nbsp; Cap: ${calcTotalSpent(team.roster, team.bench)}M / $110M</div>
 
-            <RosterPanel roster={team.roster} injuries={team.injuries || {}} title="Your Team" />
+            <RosterPanel roster={team.roster} injuries={team.injuries || {}} bench={team.bench} title="Your Team" />
+            <BenchPanel bench={team.bench || {}} />
 
             <div style={{
               fontFamily: "'Orbitron', monospace", fontSize: 11, color: "#64748b",
@@ -1727,8 +1903,15 @@ export default function App() {
             }}>FREE AGENTS</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {POSITIONS.map(pos => (
-                <PlayerCard key={pos} pos={pos} player={faClass[pos]}
-                  onClick={() => signFA(pos)} actionLabel="SIGN" />
+                <div key={pos} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <PlayerCard pos={pos} player={faClass[pos]} />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <Btn onClick={() => signFA(pos, false)} small>Sign</Btn>
+                    <Btn onClick={() => signFA(pos, true)} variant="secondary" small>Bench</Btn>
+                  </div>
+                </div>
               ))}
             </div>
 
