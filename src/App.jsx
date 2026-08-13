@@ -405,6 +405,58 @@ function PlayerAvatar({ name, pos, size = 36 }) {
   );
 }
 
+// Team crests use the same seeded-pixel technique as players but read as a
+// distinct "logo" rather than a "character": radially symmetric (not just
+// mirrored), circular badge frame, a broader hue set keyed off the team
+// name, and no idle bob — crests are static, players feel alive.
+const TEAM_AVATAR_PALETTE = [
+  { bg: "rgba(245,158,11,0.14)", fg: "#f59e0b" },
+  { bg: "rgba(239,68,68,0.14)", fg: "#ef4444" },
+  { bg: "rgba(74,222,128,0.14)", fg: "#4ade80" },
+  { bg: "rgba(96,165,250,0.14)", fg: "#60a5fa" },
+  { bg: "rgba(167,139,250,0.14)", fg: "#a78bfa" },
+  { bg: "rgba(34,211,238,0.14)", fg: "#22d3ee" },
+  { bg: "rgba(244,114,182,0.14)", fg: "#f472b6" },
+  { bg: "rgba(163,230,53,0.14)", fg: "#a3e635" },
+  { bg: "rgba(251,146,60,0.14)", fg: "#fb923c" },
+  { bg: "rgba(45,212,191,0.14)", fg: "#2dd4bf" },
+];
+
+function TeamAvatar({ name, size = 36 }) {
+  const seed = useMemo(() => hashSeed(`team::${name}`), [name]);
+  const { rects, palette } = useMemo(() => {
+    const rng = mulberry32(seed);
+    const halfCols = AVATAR_COLS / 2;
+    const halfRows = AVATAR_ROWS / 2;
+    const out = [];
+    for (let r = 0; r < halfRows; r++) {
+      for (let c = 0; c < halfCols; c++) {
+        if (rng() > 0.5) {
+          out.push({ x: c, y: r });
+          out.push({ x: AVATAR_COLS - 1 - c, y: r });
+          out.push({ x: c, y: AVATAR_ROWS - 1 - r });
+          out.push({ x: AVATAR_COLS - 1 - c, y: AVATAR_ROWS - 1 - r });
+        }
+      }
+    }
+    return { rects: out, palette: TEAM_AVATAR_PALETTE[seed % TEAM_AVATAR_PALETTE.length] };
+  }, [seed]);
+
+  return (
+    <div style={{
+      width: size, height: size, flexShrink: 0, borderRadius: "50%",
+      background: palette.bg, border: `1.5px solid ${palette.fg}66`,
+      display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden"
+    }}>
+      <svg width={size * 0.72} height={size * 0.72} viewBox={`0 0 ${AVATAR_COLS} ${AVATAR_ROWS}`} shapeRendering="crispEdges">
+        {rects.map((p, i) => (
+          <rect key={i} x={p.x} y={p.y} width={1} height={1} fill={palette.fg} />
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 // ─── COMPONENTS ─────────────────────────────────────────────────────────────
 
 function PlayerCard({ pos, player, highlight, onClick, compact, actionLabel, scouting, injury }) {
@@ -625,6 +677,7 @@ function StandingsTable({ standings, yourTeamName }) {
                   fontFamily: "'Space Mono', monospace", fontSize: 12
                 }}>
                   <span style={{ color: "#475569", minWidth: 16 }}>{i + 1}</span>
+                  <TeamAvatar name={s.name} size={22} />
                   <span style={{
                     flex: 1, color: s.name === yourTeamName ? "#f59e0b" : "#e2e8f0",
                     fontWeight: s.name === yourTeamName ? 700 : 400
@@ -1178,9 +1231,14 @@ export default function App() {
           }}>ICONIC SHOWS FOOTBALL LEAGUE</div>
           {team && phase !== PHASES.WELCOME && phase !== PHASES.SESSION_END && (
             <div style={{
-              fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 17,
-              color: "#f59e0b", marginTop: 10, letterSpacing: 1
-            }}>{team.yr} {team.name}</div>
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 10
+            }}>
+              <TeamAvatar name={team.name} size={24} />
+              <div style={{
+                fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 17,
+                color: "#f59e0b", letterSpacing: 1
+              }}>{team.yr} {team.name}</div>
+            </div>
           )}
           {team && team.badSeasonStreak > 0 && !team.fired && phase !== PHASES.WELCOME && phase !== PHASES.SESSION_END && phase !== PHASES.SEASON_END && (
             <div style={{
@@ -1247,11 +1305,15 @@ export default function App() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {div.teams.map(name => (
                     <button key={name} className="isfl-team-pick" onClick={() => selectTeam(name)} style={{
-                      textAlign: "left", padding: "12px 16px", borderRadius: 8,
+                      display: "flex", alignItems: "center", gap: 12,
+                      textAlign: "left", padding: "10px 16px", borderRadius: 8,
                       background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
                       color: "#e2e8f0", fontFamily: "'Rajdhani', sans-serif", fontWeight: 600, fontSize: 15,
                       cursor: "pointer", transition: "all 0.15s"
-                    }}>{name}</button>
+                    }}>
+                      <TeamAvatar name={name} size={32} />
+                      {name}
+                    </button>
                   ))}
                 </div>
               </div>
@@ -1294,6 +1356,7 @@ export default function App() {
                         fontFamily: "'Space Mono', monospace", fontSize: 12
                       }}>
                         <span style={{ color: "#475569", minWidth: 16 }}>{i + 1}</span>
+                        <TeamAvatar name={e.teamName} size={22} />
                         <span style={{ flex: 1, color: "#e2e8f0", fontWeight: 600 }}>
                           {e.teamName}{e.fired && <span style={{ color: "#ef4444" }}> (fired)</span>}
                         </span>
@@ -1389,9 +1452,12 @@ export default function App() {
                     <div key={i}>
                       <div style={{
                         fontFamily: "'Space Mono', monospace", fontSize: 10, color: "#64748b",
-                        marginBottom: 4, letterSpacing: 1, display: "flex", justifyContent: "space-between"
+                        marginBottom: 4, letterSpacing: 1, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8
                       }}>
-                        <span>FROM {offer.fromTeam.toUpperCase()}</span>
+                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <TeamAvatar name={offer.fromTeam} size={16} />
+                          FROM {offer.fromTeam.toUpperCase()}
+                        </span>
                         {offer.requiresPick && <span style={{ color: "#f59e0b" }}>+ COSTS A FUTURE PICK</span>}
                       </div>
                       <PlayerCard pos={tradePos} player={offer.player}
